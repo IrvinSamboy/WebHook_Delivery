@@ -1,4 +1,4 @@
-.PHONY: up down logs test psql migrate migration
+.PHONY: up down logs test psql migrate migration create-app
 
 .env:
 	cp .env.example .env
@@ -17,6 +17,11 @@ test: .env
 
 psql:
 	docker compose exec postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+
+# Crea una aplicación con su API key:
+#   make create-app name="Mi tienda"
+create-app: .env
+	docker compose run --rm api python -m relay.entrypoints.create_app "$(name)"
 
 # Aplica las migraciones pendientes.
 migrate: .env

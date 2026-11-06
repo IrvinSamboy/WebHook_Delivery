@@ -18,6 +18,17 @@ class Application:
 
 
 @dataclass(slots=True)
+class ApiKey:
+    """La credencial de una aplicación; nunca contiene la key en claro."""
+
+    id: UUID
+    app_id: UUID
+    prefix: str
+    key_hash: str
+    created_at: datetime
+
+
+@dataclass(slots=True)
 class Endpoint:
     """Una URL a la que una aplicación quiere que se entreguen sus eventos."""
 

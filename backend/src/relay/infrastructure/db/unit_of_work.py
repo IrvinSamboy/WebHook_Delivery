@@ -3,6 +3,8 @@ from typing import Self
 from sqlalchemy.orm import Session, sessionmaker
 
 from relay.infrastructure.db.repositories import (
+    SqlAlchemyApiKeyRepository,
+    SqlAlchemyApplicationRepository,
     SqlAlchemyDeliveryRepository,
     SqlAlchemyEndpointRepository,
     SqlAlchemyMessageRepository,
@@ -15,6 +17,8 @@ class SqlAlchemyUnitOfWork:
 
     def __enter__(self) -> Self:
         self._session = self._session_factory()
+        self.applications = SqlAlchemyApplicationRepository(self._session)
+        self.api_keys = SqlAlchemyApiKeyRepository(self._session)
         self.endpoints = SqlAlchemyEndpointRepository(self._session)
         self.messages = SqlAlchemyMessageRepository(self._session)
         self.deliveries = SqlAlchemyDeliveryRepository(self._session)

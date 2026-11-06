@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from relay.domain.entities import Delivery, Endpoint, Message
+from relay.domain.entities import ApiKey, Application, Delivery, Endpoint, Message
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -35,6 +35,22 @@ class FakeClock:
         return self._now
 
 
+class FakeApplicationRepository:
+    def __init__(self) -> None:
+        self.items: list[Application] = []
+
+    def add(self, application: Application) -> None:
+        self.items.append(application)
+
+
+class FakeApiKeyRepository:
+    def __init__(self) -> None:
+        self.items: list[ApiKey] = []
+
+    def add(self, api_key: ApiKey) -> None:
+        self.items.append(api_key)
+
+
 class FakeEndpointRepository:
     def __init__(self, items: list[Endpoint]) -> None:
         self.items = items
@@ -64,6 +80,8 @@ class FakeDeliveryRepository:
 
 class FakeUnitOfWork:
     def __init__(self, endpoints: list[Endpoint] | None = None) -> None:
+        self.applications = FakeApplicationRepository()
+        self.api_keys = FakeApiKeyRepository()
         self.endpoints = FakeEndpointRepository(endpoints or [])
         self.messages = FakeMessageRepository()
         self.deliveries = FakeDeliveryRepository()

@@ -8,11 +8,19 @@ from datetime import datetime
 from typing import Protocol, Self
 from uuid import UUID
 
-from relay.domain.entities import Delivery, Endpoint, Message
+from relay.domain.entities import ApiKey, Application, Delivery, Endpoint, Message
 
 
 class Clock(Protocol):
     def now(self) -> datetime: ...
+
+
+class ApplicationRepository(Protocol):
+    def add(self, application: Application) -> None: ...
+
+
+class ApiKeyRepository(Protocol):
+    def add(self, api_key: ApiKey) -> None: ...
 
 
 class EndpointRepository(Protocol):
@@ -35,6 +43,8 @@ class UnitOfWork(Protocol):
     Si se sale del bloque `with` sin commit, todo se descarta.
     """
 
+    applications: ApplicationRepository
+    api_keys: ApiKeyRepository
     endpoints: EndpointRepository
     messages: MessageRepository
     deliveries: DeliveryRepository

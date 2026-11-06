@@ -11,8 +11,46 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from relay.domain.entities import Delivery, Endpoint, Message
-from relay.infrastructure.db.models import DeliveryModel, EndpointModel, MessageModel
+from relay.domain.entities import ApiKey, Application, Delivery, Endpoint, Message
+from relay.infrastructure.db.models import (
+    ApiKeyModel,
+    ApplicationModel,
+    DeliveryModel,
+    EndpointModel,
+    MessageModel,
+)
+
+
+class SqlAlchemyApplicationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, application: Application) -> None:
+        self._session.add(
+            ApplicationModel(
+                id=application.id,
+                name=application.name,
+                created_at=application.created_at,
+            )
+        )
+        self._session.flush()
+
+
+class SqlAlchemyApiKeyRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, api_key: ApiKey) -> None:
+        self._session.add(
+            ApiKeyModel(
+                id=api_key.id,
+                app_id=api_key.app_id,
+                prefix=api_key.prefix,
+                key_hash=api_key.key_hash,
+                created_at=api_key.created_at,
+            )
+        )
+        self._session.flush()
 
 
 class SqlAlchemyEndpointRepository:

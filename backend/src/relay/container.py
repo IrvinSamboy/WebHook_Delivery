@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from relay.application.use_cases.create_application import CreateApplication
 from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
 from relay.config import get_settings
@@ -15,6 +16,10 @@ from relay.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 @lru_cache
 def session_factory() -> sessionmaker[Session]:
     return build_session_factory(get_settings().database_url)
+
+
+def create_application() -> CreateApplication:
+    return CreateApplication(SqlAlchemyUnitOfWork(session_factory()), SystemClock())
 
 
 def register_endpoint() -> RegisterEndpoint:
