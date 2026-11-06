@@ -17,3 +17,9 @@ def test_accepts(event_types, enabled, event_type, expected):
     endpoint = make_endpoint(event_types, enabled)
 
     assert endpoint.accepts(event_type) is expected
+
+
+def test_el_secreto_no_aparece_al_imprimir_el_endpoint():
+    endpoint = make_endpoint()
+
+    assert endpoint.secret not in repr(endpoint)

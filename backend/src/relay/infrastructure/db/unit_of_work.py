@@ -2,6 +2,7 @@ from typing import Self
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.repositories import (
     SqlAlchemyApiKeyRepository,
     SqlAlchemyApplicationRepository,
@@ -12,14 +13,15 @@ from relay.infrastructure.db.repositories import (
 
 
 class SqlAlchemyUnitOfWork:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(self, session_factory: sessionmaker[Session], cipher: SecretCipher) -> None:
         self._session_factory = session_factory
+        self._cipher = cipher
 
     def __enter__(self) -> Self:
         self._session = self._session_factory()
         self.applications = SqlAlchemyApplicationRepository(self._session)
         self.api_keys = SqlAlchemyApiKeyRepository(self._session)
-        self.endpoints = SqlAlchemyEndpointRepository(self._session)
+        self.endpoints = SqlAlchemyEndpointRepository(self._session, self._cipher)
         self.messages = SqlAlchemyMessageRepository(self._session)
         self.deliveries = SqlAlchemyDeliveryRepository(self._session)
         return self

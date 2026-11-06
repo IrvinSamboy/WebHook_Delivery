@@ -68,7 +68,7 @@ class EndpointModel(Base):
     # Indexado porque cada evento recibido busca los endpoints de su aplicación.
     app_id: Mapped[UUID] = mapped_column(ForeignKey("applications.id"), index=True)
     url: Mapped[str] = mapped_column(Text)
-    secret: Mapped[str] = mapped_column(Text)
+    secret_encrypted: Mapped[str] = mapped_column(Text)
     event_types: Mapped[list[str]] = mapped_column(ARRAY(Text))
     enabled: Mapped[bool] = mapped_column(server_default=true())
     created_at: Mapped[datetime] = mapped_column(

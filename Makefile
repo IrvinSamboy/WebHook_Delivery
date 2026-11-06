@@ -2,6 +2,7 @@
 
 .env:
 	cp .env.example .env
+	sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$$(openssl rand -base64 32 | tr '+/' '-_')|" .env
 
 up: .env
 	docker compose up -d --build

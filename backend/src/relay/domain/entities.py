@@ -1,6 +1,6 @@
 """Entidades del dominio: solo importan la librería estándar."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -35,7 +35,7 @@ class Endpoint:
     id: UUID
     app_id: UUID
     url: str
-    secret: str
+    secret: str = field(repr=False)  # Para que no aparezca en logs ni tracebacks.
     event_types: list[str]
     enabled: bool
     created_at: datetime

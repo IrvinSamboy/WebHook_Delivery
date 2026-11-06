@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from relay.domain.entities import ApiKey, Application, Delivery, Endpoint, Message
+from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.models import (
     ApiKeyModel,
     ApplicationModel,
@@ -54,8 +55,9 @@ class SqlAlchemyApiKeyRepository:
 
 
 class SqlAlchemyEndpointRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, cipher: SecretCipher) -> None:
         self._session = session
+        self._cipher = cipher
 
     def add(self, endpoint: Endpoint) -> None:
         self._session.add(
@@ -63,7 +65,7 @@ class SqlAlchemyEndpointRepository:
                 id=endpoint.id,
                 app_id=endpoint.app_id,
                 url=endpoint.url,
-                secret=endpoint.secret,
+                secret_encrypted=self._cipher.encrypt(endpoint.secret),
                 event_types=endpoint.event_types,
                 enabled=endpoint.enabled,
                 created_at=endpoint.created_at,
@@ -75,7 +77,18 @@ class SqlAlchemyEndpointRepository:
         models = self._session.scalars(
             select(EndpointModel).where(EndpointModel.app_id == app_id)
         )
-        return [_endpoint_to_entity(model) for model in models]
+        return [self._to_entity(model) for model in models]
+
+    def _to_entity(self, model: EndpointModel) -> Endpoint:
+        return Endpoint(
+            id=model.id,
+            app_id=model.app_id,
+            url=model.url,
+            secret=self._cipher.decrypt(model.secret_encrypted),
+            event_types=list(model.event_types),
+            enabled=model.enabled,
+            created_at=model.created_at,
+        )
 
 
 class SqlAlchemyMessageRepository:
@@ -111,15 +124,3 @@ class SqlAlchemyDeliveryRepository:
             )
         )
         self._session.flush()
-
-
-def _endpoint_to_entity(model: EndpointModel) -> Endpoint:
-    return Endpoint(
-        id=model.id,
-        app_id=model.app_id,
-        url=model.url,
-        secret=model.secret,
-        event_types=list(model.event_types),
-        enabled=model.enabled,
-        created_at=model.created_at,
-    )
