@@ -6,6 +6,7 @@ from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.repositories import (
     SqlAlchemyApiKeyRepository,
     SqlAlchemyApplicationRepository,
+    SqlAlchemyAttemptRepository,
     SqlAlchemyDeliveryRepository,
     SqlAlchemyEndpointRepository,
     SqlAlchemyMessageRepository,
@@ -24,6 +25,7 @@ class SqlAlchemyUnitOfWork:
         self.endpoints = SqlAlchemyEndpointRepository(self._session, self._cipher)
         self.messages = SqlAlchemyMessageRepository(self._session)
         self.deliveries = SqlAlchemyDeliveryRepository(self._session)
+        self.attempts = SqlAlchemyAttemptRepository(self._session)
         return self
 
     def __exit__(self, *exc_info: object) -> None:

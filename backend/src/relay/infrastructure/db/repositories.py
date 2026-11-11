@@ -8,14 +8,23 @@ mensaje debe insertarse antes que sus entregas.
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from relay.domain.entities import ApiKey, Application, Delivery, Endpoint, Message
+from relay.domain.delivery_status import DeliveryStatus
+from relay.domain.entities import (
+    ApiKey,
+    Application,
+    Attempt,
+    Delivery,
+    Endpoint,
+    Message,
+)
 from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.models import (
     ApiKeyModel,
     ApplicationModel,
+    AttemptModel,
     DeliveryModel,
     EndpointModel,
     MessageModel,
@@ -73,6 +82,9 @@ class SqlAlchemyEndpointRepository:
         )
         self._session.flush()
 
+    def get(self, endpoint_id: UUID) -> Endpoint:
+        return self._to_entity(self._session.get_one(EndpointModel, endpoint_id))
+
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
         models = self._session.scalars(
             select(EndpointModel).where(EndpointModel.app_id == app_id)
@@ -107,6 +119,16 @@ class SqlAlchemyMessageRepository:
         )
         self._session.flush()
 
+    def get(self, message_id: UUID) -> Message:
+        model = self._session.get_one(MessageModel, message_id)
+        return Message(
+            id=model.id,
+            app_id=model.app_id,
+            event_type=model.event_type,
+            payload=model.payload,
+            created_at=model.created_at,
+        )
+
 
 class SqlAlchemyDeliveryRepository:
     def __init__(self, session: Session) -> None:
@@ -124,3 +146,55 @@ class SqlAlchemyDeliveryRepository:
             )
         )
         self._session.flush()
+
+    def get_for_update(self, delivery_id: UUID) -> Delivery | None:
+        # SELECT ... FOR UPDATE: otra transacción que pida la misma fila espera
+        # a que esta termine, y entonces ya ve el estado nuevo.
+        model = self._session.scalars(
+            select(DeliveryModel).where(DeliveryModel.id == delivery_id).with_for_update()
+        ).one_or_none()
+        if model is None:
+            return None
+        return Delivery(
+            id=model.id,
+            message_id=model.message_id,
+            endpoint_id=model.endpoint_id,
+            status=DeliveryStatus(model.status),
+            next_attempt_at=model.next_attempt_at,
+            created_at=model.created_at,
+        )
+
+    def update(self, delivery: Delivery) -> None:
+        self._session.execute(
+            update(DeliveryModel)
+            .where(DeliveryModel.id == delivery.id)
+            .values(status=delivery.status.value, next_attempt_at=delivery.next_attempt_at)
+        )
+
+
+class SqlAlchemyAttemptRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, attempt: Attempt) -> None:
+        self._session.add(
+            AttemptModel(
+                id=attempt.id,
+                delivery_id=attempt.delivery_id,
+                number=attempt.number,
+                started_at=attempt.started_at,
+                duration_ms=attempt.duration_ms,
+                request_headers=attempt.request_headers,
+                response_status=attempt.response_status,
+                response_body=attempt.response_body,
+                error=attempt.error,
+            )
+        )
+        self._session.flush()
+
+    def count_by_delivery(self, delivery_id: UUID) -> int:
+        return self._session.scalar(
+            select(func.count())
+            .select_from(AttemptModel)
+            .where(AttemptModel.delivery_id == delivery_id)
+        )

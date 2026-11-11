@@ -1,9 +1,18 @@
 """Versiones falsas de los puertos: guardan todo en listas, sin base de datos."""
 
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from relay.domain.entities import ApiKey, Application, Delivery, Endpoint, Message
+from relay.application.ports import HttpResult
+from relay.domain.entities import (
+    ApiKey,
+    Application,
+    Attempt,
+    Delivery,
+    Endpoint,
+    Message,
+)
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -58,6 +67,9 @@ class FakeEndpointRepository:
     def add(self, endpoint: Endpoint) -> None:
         self.items.append(endpoint)
 
+    def get(self, endpoint_id: UUID) -> Endpoint:
+        return next(e for e in self.items if e.id == endpoint_id)
+
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
         return [endpoint for endpoint in self.items if endpoint.app_id == app_id]
 
@@ -69,6 +81,9 @@ class FakeMessageRepository:
     def add(self, message: Message) -> None:
         self.items.append(message)
 
+    def get(self, message_id: UUID) -> Message:
+        return next(m for m in self.items if m.id == message_id)
+
 
 class FakeDeliveryRepository:
     def __init__(self) -> None:
@@ -76,6 +91,26 @@ class FakeDeliveryRepository:
 
     def add(self, delivery: Delivery) -> None:
         self.items.append(delivery)
+
+    # Devuelven y guardan copias, como una base de datos real: cambiar el objeto
+    # leído no cambia lo guardado hasta que se llama a update().
+    def get_for_update(self, delivery_id: UUID) -> Delivery | None:
+        found = [d for d in self.items if d.id == delivery_id]
+        return replace(found[0]) if found else None
+
+    def update(self, delivery: Delivery) -> None:
+        self.items = [replace(delivery) if d.id == delivery.id else d for d in self.items]
+
+
+class FakeAttemptRepository:
+    def __init__(self) -> None:
+        self.items: list[Attempt] = []
+
+    def add(self, attempt: Attempt) -> None:
+        self.items.append(attempt)
+
+    def count_by_delivery(self, delivery_id: UUID) -> int:
+        return sum(1 for a in self.items if a.delivery_id == delivery_id)
 
 
 class FakeUnitOfWork:
@@ -85,7 +120,12 @@ class FakeUnitOfWork:
         self.endpoints = FakeEndpointRepository(endpoints or [])
         self.messages = FakeMessageRepository()
         self.deliveries = FakeDeliveryRepository()
-        self.committed = False
+        self.attempts = FakeAttemptRepository()
+        self.commits = 0
+
+    @property
+    def committed(self) -> bool:
+        return self.commits > 0
 
     def __enter__(self) -> "FakeUnitOfWork":
         return self
@@ -94,4 +134,30 @@ class FakeUnitOfWork:
         pass
 
     def commit(self) -> None:
-        self.committed = True
+        self.commits += 1
+
+
+@dataclass
+class SentRequest:
+    url: str
+    headers: dict[str, str]
+    body: bytes
+
+
+class FakeHttpSender:
+    """No usa la red: guarda lo que le piden enviar y devuelve `result`.
+
+    `on_send`, si se indica, se ejecuta en el momento del envío; sirve para
+    comprobar cómo está todo justo cuando sale la petición.
+    """
+
+    def __init__(self, result: HttpResult | None = None, on_send=None) -> None:
+        self.result = result or HttpResult(status=200, body="ok", error=None, duration_ms=50)
+        self.on_send = on_send
+        self.requests: list[SentRequest] = []
+
+    def send(self, url: str, headers: dict[str, str], body: bytes) -> HttpResult:
+        self.requests.append(SentRequest(url, headers, body))
+        if self.on_send:
+            self.on_send()
+        return self.result

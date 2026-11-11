@@ -66,3 +66,35 @@ class Delivery:
     status: DeliveryStatus
     next_attempt_at: datetime
     created_at: datetime
+
+
+# Las respuestas pueden ser enormes (una página de error HTML, por ejemplo):
+# se guarda solo el principio, que basta para depurar.
+RESPONSE_BODY_LIMIT = 4096
+
+
+def truncate_response_body(body: str) -> str:
+    """Recorta el body a RESPONSE_BODY_LIMIT bytes sin partir un carácter."""
+    encoded = body.encode()
+    if len(encoded) <= RESPONSE_BODY_LIMIT:
+        return body
+    return encoded[:RESPONSE_BODY_LIMIT].decode(errors="ignore")
+
+
+@dataclass(slots=True)
+class Attempt:
+    """Un intento de entrega: qué se envió y qué pasó.
+
+    Si hubo respuesta, `response_status` la describe aunque no sea 2xx.
+    Si no la hubo (timeout, conexión rechazada...), `error` dice por qué.
+    """
+
+    id: UUID
+    delivery_id: UUID
+    number: int  # 1 para el primer intento, 2 para el primer reintento...
+    started_at: datetime
+    duration_ms: int
+    request_headers: dict[str, str]
+    response_status: int | None
+    response_body: str | None
+    error: str | None

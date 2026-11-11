@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     MetaData,
     String,
     Text,
@@ -104,3 +105,24 @@ class DeliveryModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class AttemptModel(Base):
+    __tablename__ = "attempts"
+    __table_args__ = (
+        # Cada intento de una entrega tiene su propio número; esta restricción
+        # también crea el índice para listar los intentos de una entrega.
+        UniqueConstraint("delivery_id", "number", name="uq_attempts_delivery_id_number"),
+        CheckConstraint("number >= 1", name="number_positive"),
+        CheckConstraint("duration_ms >= 0", name="duration_not_negative"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    delivery_id: Mapped[UUID] = mapped_column(ForeignKey("deliveries.id"))
+    number: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    request_headers: Mapped[dict[str, str]] = mapped_column(JSONB)
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    response_body: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)

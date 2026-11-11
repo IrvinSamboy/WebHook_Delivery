@@ -6,12 +6,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from relay.application.use_cases.create_application import CreateApplication
 from relay.application.use_cases.create_message import CreateMessage
+from relay.application.use_cases.deliver_message import DeliverMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
 from relay.config import get_settings
 from relay.infrastructure.clock import SystemClock
 from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.session import build_session_factory
 from relay.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from relay.infrastructure.http_sender import Httpx2Sender
 
 
 @lru_cache
@@ -22,6 +24,12 @@ def session_factory() -> sessionmaker[Session]:
 @lru_cache
 def secret_cipher() -> SecretCipher:
     return SecretCipher(get_settings().encryption_key.get_secret_value())
+
+
+@lru_cache
+def http_sender() -> Httpx2Sender:
+    # Uno por proceso: reutiliza las conexiones abiertas con los receptores.
+    return Httpx2Sender()
 
 
 def _unit_of_work() -> SqlAlchemyUnitOfWork:
@@ -38,3 +46,7 @@ def register_endpoint() -> RegisterEndpoint:
 
 def create_message() -> CreateMessage:
     return CreateMessage(_unit_of_work(), SystemClock())
+
+
+def deliver_message() -> DeliverMessage:
+    return DeliverMessage(_unit_of_work(), http_sender(), SystemClock())
