@@ -14,6 +14,8 @@ from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.session import build_session_factory
 from relay.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from relay.infrastructure.http_sender import Httpx2Sender
+from relay.infrastructure.queue.celery_app import app as celery_app
+from relay.infrastructure.queue.task_queue import CeleryTaskQueue
 
 
 @lru_cache
@@ -32,6 +34,10 @@ def http_sender() -> Httpx2Sender:
     return Httpx2Sender()
 
 
+def task_queue() -> CeleryTaskQueue:
+    return CeleryTaskQueue(celery_app)
+
+
 def _unit_of_work() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork(session_factory(), secret_cipher())
 
@@ -45,7 +51,7 @@ def register_endpoint() -> RegisterEndpoint:
 
 
 def create_message() -> CreateMessage:
-    return CreateMessage(_unit_of_work(), SystemClock())
+    return CreateMessage(_unit_of_work(), SystemClock(), task_queue())
 
 
 def deliver_message() -> DeliverMessage:

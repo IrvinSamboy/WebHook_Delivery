@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from fakes import FakeClock, FakeUnitOfWork, make_endpoint
+from fakes import FakeClock, FakeTaskQueue, FakeUnitOfWork, make_endpoint
 from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
@@ -39,7 +39,7 @@ def client(uow):
     app.dependency_overrides = {
         deps.get_api_key_finder: lambda: fake_find_api_key,
         deps.get_session: lambda: None,
-        container.create_message: lambda: CreateMessage(uow, FakeClock()),
+        container.create_message: lambda: CreateMessage(uow, FakeClock(), FakeTaskQueue()),
         container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock()),
     }
     yield TestClient(app)

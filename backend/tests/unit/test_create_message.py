@@ -2,15 +2,16 @@ from uuid import uuid4
 
 import pytest
 
-from fakes import NOW, FakeClock, FakeUnitOfWork, make_endpoint
+from fakes import NOW, FakeClock, FakeTaskQueue, FakeUnitOfWork, make_endpoint
 from relay.application.use_cases.create_message import CreateMessage
 from relay.domain.delivery_status import DeliveryStatus
 
 APP_ID = uuid4()
 
 
-def run(uow: FakeUnitOfWork, event_type: str = "order.paid"):
-    return CreateMessage(uow, FakeClock()).execute(APP_ID, event_type, {"order_id": "ord_981"})
+def run(uow: FakeUnitOfWork, event_type: str = "order.paid", queue: FakeTaskQueue | None = None):
+    use_case = CreateMessage(uow, FakeClock(), queue or FakeTaskQueue())
+    return use_case.execute(APP_ID, event_type, {"order_id": "ord_981"})
 
 
 def test_guarda_el_mensaje_con_sus_datos():
@@ -84,3 +85,63 @@ def test_no_hace_commit_si_falla_a_mitad():
         run(uow)
 
     assert uow.committed is False
+
+
+# --- Encolado ---
+
+
+def test_encola_cada_delivery_creada():
+    uow = FakeUnitOfWork(endpoints=[make_endpoint(app_id=APP_ID), make_endpoint(app_id=APP_ID)])
+    queue = FakeTaskQueue()
+
+    run(uow, queue=queue)
+
+    assert queue.enqueued == [d.id for d in uow.deliveries.items]
+
+
+def test_encola_despues_del_commit():
+    # Si encolara antes, el worker podría buscar el sobre antes de que exista.
+    uow = FakeUnitOfWork(endpoints=[make_endpoint(app_id=APP_ID)])
+    committed_when_enqueued = []
+    queue = FakeTaskQueue(on_enqueue=lambda: committed_when_enqueued.append(uow.committed))
+
+    run(uow, queue=queue)
+
+    assert committed_when_enqueued == [True]
+
+
+def test_sin_suscriptores_no_encola_nada():
+    queue = FakeTaskQueue()
+
+    run(FakeUnitOfWork(), queue=queue)
+
+    assert queue.enqueued == []
+
+
+def test_si_el_commit_falla_no_encola_nada():
+    uow = FakeUnitOfWork(endpoints=[make_endpoint(app_id=APP_ID)])
+    queue = FakeTaskQueue()
+
+    def falla():
+        raise RuntimeError("se cayó la base de datos")
+
+    uow.commit = falla
+
+    with pytest.raises(RuntimeError):
+        run(uow, queue=queue)
+
+    assert queue.enqueued == []
+
+
+def test_si_encolar_falla_el_mensaje_queda_guardado(caplog):
+    # El cliente recibe 202 igual: si recibiera un error, reintentaría y el
+    # evento se duplicaría. Los sobres quedan pending en la base de datos.
+    uow = FakeUnitOfWork(endpoints=[make_endpoint(app_id=APP_ID)])
+    queue = FakeTaskQueue(error=ConnectionError("Redis no responde"))
+
+    message = run(uow, queue=queue)
+
+    assert uow.messages.items == [message]
+    assert uow.committed is True
+    assert uow.deliveries.items[0].status is DeliveryStatus.PENDING
+    assert "No se pudieron encolar" in caplog.text

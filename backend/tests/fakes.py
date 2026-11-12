@@ -137,6 +137,22 @@ class FakeUnitOfWork:
         self.commits += 1
 
 
+class FakeTaskQueue:
+    """Guarda los ids encolados. Con `error`, falla como si Redis estuviera caído."""
+
+    def __init__(self, on_enqueue=None, error: Exception | None = None) -> None:
+        self.enqueued: list[UUID] = []
+        self.on_enqueue = on_enqueue
+        self.error = error
+
+    def enqueue_delivery(self, delivery_id: UUID) -> None:
+        if self.error:
+            raise self.error
+        if self.on_enqueue:
+            self.on_enqueue()
+        self.enqueued.append(delivery_id)
+
+
 @dataclass
 class SentRequest:
     url: str

@@ -37,5 +37,29 @@ services:
       redis:
         condition: service_healthy
 
+  # Misma imagen que la API, otro comando: comparten todo el código.
+  worker:
+    build: ./backend
+    command: celery -A relay.infrastructure.queue.celery_app worker --loglevel=info --concurrency=4
+    env_file: .env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Solo para desarrollo: make receiver secret=whsec_...
+  # El worker lo encuentra en http://receiver:9000/.
+  receiver:
+    build: ./backend
+    command: python scripts/dev_receiver.py
+    profiles: ["dev"]
+    environment:
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+    volumes:
+      - ./backend:/app
+
 volumes:
   postgres_data:

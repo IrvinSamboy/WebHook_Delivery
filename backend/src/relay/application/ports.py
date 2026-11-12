@@ -47,6 +47,12 @@ class HttpSender(Protocol):
     def send(self, url: str, headers: dict[str, str], body: bytes) -> HttpResult: ...
 
 
+class TaskQueue(Protocol):
+    """Avisa a los workers de que hay trabajo. Solo transporta ids."""
+
+    def enqueue_delivery(self, delivery_id: UUID) -> None: ...
+
+
 class ApplicationRepository(Protocol):
     def add(self, application: Application) -> None: ...
 
