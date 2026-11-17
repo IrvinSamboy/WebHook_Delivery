@@ -1,11 +1,13 @@
 """Entidades del dominio: solo importan la librería estándar."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from relay.domain.delivery_status import DeliveryStatus
+from relay.domain.delivery_status import ALLOWED_TRANSITIONS, DeliveryStatus
+from relay.domain.errors import InvalidTransition
+from relay.domain.retry_policy import RetryPolicy
 
 
 @dataclass(slots=True)
@@ -66,6 +68,36 @@ class Delivery:
     status: DeliveryStatus
     next_attempt_at: datetime
     created_at: datetime
+    attempt_count: int = 0
+
+    def start_sending(self) -> None:
+        """Un worker toma el sobre de la cola."""
+        self._move_to(DeliveryStatus.SENDING)
+
+    def record_attempt(
+        self,
+        succeeded: bool,
+        now: datetime,
+        policy: RetryPolicy,
+        retry_after: timedelta | None = None,
+    ) -> None:
+        """Decide qué pasa con el sobre tras un intento de envío."""
+        if self.status is not DeliveryStatus.SENDING:
+            raise InvalidTransition(self.status, DeliveryStatus.PENDING)
+
+        self.attempt_count += 1
+        if succeeded:
+            self._move_to(DeliveryStatus.SUCCEEDED)
+        elif self.attempt_count >= policy.max_attempts:
+            self._move_to(DeliveryStatus.FAILED)
+        else:
+            self._move_to(DeliveryStatus.PENDING)
+            self.next_attempt_at = now + policy.delay_after(self.attempt_count, retry_after)
+
+    def _move_to(self, target: DeliveryStatus) -> None:
+        if target not in ALLOWED_TRANSITIONS[self.status]:
+            raise InvalidTransition(self.status, target)
+        self.status = target
 
 
 # Las respuestas pueden ser enormes (una página de error HTML, por ejemplo):
