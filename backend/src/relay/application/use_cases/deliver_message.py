@@ -1,4 +1,4 @@
-"""Entrega un sobre: lo firma, lo envía y registra el intento.
+"""Entrega un sobre: lo firma, lo envía, registra el intento y decide qué sigue.
 
 El POST ocurre entre dos transacciones cortas, nunca dentro de una: esperar
 a la red con una transacción abierta retiene una conexión de la base de datos
@@ -12,11 +12,8 @@ from uuid import UUID, uuid4
 from relay.application.ports import Clock, HttpSender, UnitOfWork
 from relay.domain.delivery_status import DeliveryStatus
 from relay.domain.entities import Attempt, Message, truncate_response_body
+from relay.domain.retry_policy import RetryPolicy
 from relay.domain.signing import sign
-
-# Solo se envían sobres que nadie está enviando ni se enviaron ya. Así, si la
-# misma tarea llega dos veces, la segunda no hace nada.
-READY_TO_SEND = {DeliveryStatus.PENDING, DeliveryStatus.QUEUED}
 
 
 def build_body(message: Message) -> bytes:
@@ -33,22 +30,27 @@ def build_body(message: Message) -> bytes:
 
 
 class DeliverMessage:
-    def __init__(self, uow: UnitOfWork, sender: HttpSender, clock: Clock) -> None:
+    def __init__(
+        self, uow: UnitOfWork, sender: HttpSender, clock: Clock, policy: RetryPolicy
+    ) -> None:
         self._uow = uow
         self._sender = sender
         self._clock = clock
+        self._policy = policy
 
     def execute(self, delivery_id: UUID) -> None:
         # Transacción 1: reservar el sobre.
         with self._uow as uow:
             delivery = uow.deliveries.get_for_update(delivery_id)
-            if delivery is None or delivery.status not in READY_TO_SEND:
+            # Solo se envían sobres encolados. Una tarea repetida (Celery puede
+            # entregar la misma dos veces) encuentra el sobre en otro estado y
+            # no hace nada; un sobre pending espera su turno del backoff.
+            if delivery is None or delivery.status is not DeliveryStatus.QUEUED:
                 return
             endpoint = uow.endpoints.get(delivery.endpoint_id)
             message = uow.messages.get(delivery.message_id)
-            number = uow.attempts.count_by_delivery(delivery.id) + 1
 
-            delivery.status = DeliveryStatus.SENDING
+            delivery.start_sending()
             uow.deliveries.update(delivery)
             uow.commit()
 
@@ -66,13 +68,13 @@ class DeliverMessage:
             endpoint.url, {**headers, "webhook-signature": signature}, body
         )
 
-        # Transacción 2: registrar lo que pasó.
+        # Transacción 2: registrar lo que pasó y decidir qué sigue.
         with self._uow as uow:
             uow.attempts.add(
                 Attempt(
                     id=uuid4(),
                     delivery_id=delivery.id,
-                    number=number,
+                    number=delivery.attempt_count + 1,
                     started_at=started_at,
                     duration_ms=result.duration_ms,
                     request_headers=headers,  # Sin la firma: no aporta nada guardarla.
@@ -83,8 +85,11 @@ class DeliverMessage:
                     error=result.error,
                 )
             )
-            delivery.status = (
-                DeliveryStatus.SUCCEEDED if result.succeeded else DeliveryStatus.FAILED
+            delivery.record_attempt(
+                succeeded=result.succeeded,
+                now=self._clock.now(),
+                policy=self._policy,
+                retry_after=result.retry_after,
             )
             uow.deliveries.update(delivery)
             uow.commit()

@@ -1,4 +1,4 @@
-.PHONY: up down logs worker-logs receiver test psql migrate migration create-app
+.PHONY: up down logs worker-logs beat-logs receiver test psql migrate migration create-app
 
 .env:
 	cp .env.example .env
@@ -16,10 +16,14 @@ logs:
 worker-logs:
 	docker compose logs -f worker
 
+beat-logs:
+	docker compose logs -f beat
+
 # Arranca el receptor de prueba con el secreto de un endpoint:
 #   make receiver secret=whsec_...
+#   make receiver secret=whsec_... status=500   (responde siempre 500)
 receiver:
-	WEBHOOK_SECRET='$(secret)' docker compose --profile dev up --build receiver
+	WEBHOOK_SECRET='$(secret)' RECEIVER_STATUS='$(status)' docker compose --profile dev up --build receiver
 
 test: .env
 	docker compose run --rm api pytest

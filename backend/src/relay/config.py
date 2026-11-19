@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     database_url: str = Field(min_length=1)
     redis_url: str = Field(min_length=1)
     encryption_key: SecretStr
+    # Espera tras el primer fallo; se duplica en cada reintento.
+    backoff_base_seconds: float = Field(default=30, gt=0)
 
     @field_validator("encryption_key")
     @classmethod

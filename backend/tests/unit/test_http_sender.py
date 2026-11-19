@@ -1,8 +1,10 @@
+from datetime import UTC, datetime, timedelta
+
 import httpx2
 import pytest
 
 from relay.domain.entities import RESPONSE_BODY_LIMIT
-from relay.infrastructure.http_sender import USER_AGENT, Httpx2Sender
+from relay.infrastructure.http_sender import USER_AGENT, Httpx2Sender, parse_retry_after
 
 URL = "https://receptor.test/webhook"
 BODY = b'{"type":"order.paid"}'
@@ -76,3 +78,38 @@ def test_convierte_los_fallos_de_red_en_un_motivo(exception, error):
     result = sender_with(handler).send(URL, {}, BODY)
 
     assert (result.status, result.body, result.error) == (None, None, error)
+
+
+def test_lee_el_retry_after_de_la_respuesta():
+    def handler(request):
+        return httpx2.Response(429, headers={"retry-after": "120"})
+
+    result = sender_with(handler).send(URL, {}, BODY)
+
+    assert result.retry_after == timedelta(seconds=120)
+
+
+def test_sin_retry_after_no_hay_espera_pedida():
+    result = sender_with(lambda request: httpx2.Response(503)).send(URL, {}, BODY)
+
+    assert result.retry_after is None
+
+
+NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("120", timedelta(seconds=120), id="segundos"),
+        pytest.param(" 30 ", timedelta(seconds=30), id="con-espacios"),
+        pytest.param("Thu, 01 Jan 2026 12:05:00 GMT", timedelta(minutes=5), id="fecha-http"),
+        pytest.param("Thu, 01 Jan 2026 11:00:00 GMT", timedelta(0), id="fecha-pasada"),
+        pytest.param("mañana", None, id="basura"),
+        pytest.param("-5", None, id="negativo"),
+        pytest.param("", None, id="vacio"),
+        pytest.param(None, None, id="ausente"),
+    ],
+)
+def test_interpreta_el_header_retry_after(value, expected):
+    assert parse_retry_after(value, now=NOW) == expected

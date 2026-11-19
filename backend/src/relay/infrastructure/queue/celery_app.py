@@ -1,7 +1,10 @@
 """La app de Celery: la usan la API (para encolar) y el worker (para ejecutar).
 
-Arranca el worker con:
+Arranca el worker y el reloj de tareas periódicas con:
     celery -A relay.infrastructure.queue.celery_app worker
+    celery -A relay.infrastructure.queue.celery_app beat
+
+De beat debe haber un solo proceso: dos publicarían cada tarea dos veces.
 """
 
 from typing import Any
@@ -11,6 +14,11 @@ from celery import Celery
 from relay.config import get_settings
 
 DELIVER_TASK = "relay.deliver"
+SCHEDULE_TASK = "relay.schedule_due"
+RECOVER_TASK = "relay.recover_stuck"
+
+SCHEDULE_EVERY = 5.0  # segundos
+RECOVER_EVERY = 60.0
 
 app = Celery("relay", include=["relay.infrastructure.queue.tasks"])
 
@@ -31,6 +39,21 @@ def celery_config() -> dict[str, Any]:
         "accept_content": ["json"],
         # El resultado vive en Postgres (deliveries y attempts), no en Celery.
         "task_ignore_result": True,
+        # Celery Beat publica estas tareas periódicas; las ejecuta el worker.
+        # expires: si nadie la ejecuta antes del siguiente tick, se descarta.
+        # Con los workers ocupados no se acumulan ticks viejos en la cola.
+        "beat_schedule": {
+            "schedule-due": {
+                "task": SCHEDULE_TASK,
+                "schedule": SCHEDULE_EVERY,
+                "options": {"expires": SCHEDULE_EVERY},
+            },
+            "recover-stuck": {
+                "task": RECOVER_TASK,
+                "schedule": RECOVER_EVERY,
+                "options": {"expires": RECOVER_EVERY},
+            },
+        },
     }
 
 

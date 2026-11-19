@@ -50,3 +50,17 @@ def test_falla_si_la_clave_de_cifrado_no_es_valida(monkeypatch):
 
 def test_la_clave_no_aparece_al_imprimir_la_configuracion():
     assert VALID_KEY not in repr(Settings())
+
+
+def test_el_backoff_es_de_30_segundos_por_defecto(monkeypatch):
+    monkeypatch.delenv("BACKOFF_BASE_SECONDS", raising=False)
+
+    assert Settings().backoff_base_seconds == 30
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "rapido"])
+def test_falla_si_el_backoff_no_es_un_numero_positivo(monkeypatch, value):
+    monkeypatch.setenv("BACKOFF_BASE_SECONDS", value)
+
+    with pytest.raises(ValidationError):
+        Settings()

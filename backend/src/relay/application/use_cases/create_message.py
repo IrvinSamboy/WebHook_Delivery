@@ -35,7 +35,8 @@ class CreateMessage:
                         id=uuid4(),
                         message_id=message.id,
                         endpoint_id=endpoint.id,
-                        status=DeliveryStatus.PENDING,
+                        # Se encolan justo después del commit (camino rápido).
+                        status=DeliveryStatus.QUEUED,
                         next_attempt_at=now,
                         created_at=now,
                     )
@@ -46,8 +47,8 @@ class CreateMessage:
 
         # Se encola después del commit: así el worker siempre encuentra el sobre
         # en la base de datos. Si encolar falla, el mensaje ya está guardado y
-        # sus sobres quedan pending; no se lanza el error, porque el cliente
-        # reintentaría y el evento se duplicaría.
+        # sus sobres quedan queued sin tarea: el reaper los rescata. No se
+        # lanza el error, porque el cliente reintentaría y el evento se duplicaría.
         try:
             for delivery in deliveries:
                 self._queue.enqueue_delivery(delivery.id)

@@ -5,7 +5,7 @@ y las falsas, para los tests, en tests/fakes.py.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol, Self
 from uuid import UUID
 
@@ -29,12 +29,14 @@ class HttpResult:
 
     Si hubo respuesta, `status` y `body` la describen. Si no la hubo,
     `error` dice por qué: "timeout", "connection_error" o "request_error".
+    `retry_after` es la espera que pidió el receptor con el header Retry-After.
     """
 
     status: int | None
     body: str | None
     error: str | None
     duration_ms: int
+    retry_after: timedelta | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -84,11 +86,17 @@ class DeliveryRepository(Protocol):
 
     def update(self, delivery: Delivery) -> None: ...
 
+    def claim_due(self, now: datetime, limit: int) -> list[UUID]:
+        """Pasa a queued las entregas pending cuya hora ya llegó."""
+        ...
+
+    def recover_stuck(self, older_than: timedelta) -> list[UUID]:
+        """Devuelve a pending las entregas que llevan demasiado en queued o sending."""
+        ...
+
 
 class AttemptRepository(Protocol):
     def add(self, attempt: Attempt) -> None: ...
-
-    def count_by_delivery(self, delivery_id: UUID) -> int: ...
 
 
 class UnitOfWork(Protocol):

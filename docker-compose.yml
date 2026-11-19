@@ -50,6 +50,19 @@ services:
       redis:
         condition: service_healthy
 
+  # Publica las tareas periódicas (scheduler y reaper); el worker las ejecuta.
+  # Siempre una sola réplica: dos publicarían cada tarea dos veces.
+  # El estado de beat va a /tmp, fuera del volumen montado con el código.
+  beat:
+    build: ./backend
+    command: celery -A relay.infrastructure.queue.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    env_file: .env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+
   # Solo para desarrollo: make receiver secret=whsec_...
   # El worker lo encuentra en http://receiver:9000/.
   receiver:
@@ -58,6 +71,7 @@ services:
     profiles: ["dev"]
     environment:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      RECEIVER_STATUS: ${RECEIVER_STATUS:-}
     volumes:
       - ./backend:/app
 

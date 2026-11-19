@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     String,
@@ -15,12 +16,14 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
     true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from relay.domain.delivery_status import DeliveryStatus
+from relay.domain.entities import AttemptTrigger
 
 # Nombres predecibles para las restricciones, para que Alembic pueda
 # modificarlas o borrarlas en migraciones futuras.
@@ -33,6 +36,7 @@ NAMING_CONVENTION = {
 }
 
 _STATUS_VALUES = ", ".join(f"'{status.value}'" for status in DeliveryStatus)
+_TRIGGER_VALUES = ", ".join(f"'{trigger.value}'" for trigger in AttemptTrigger)
 
 
 class Base(DeclarativeBase):
@@ -95,6 +99,20 @@ class DeliveryModel(Base):
         # Un mensaje genera como máximo un sobre por endpoint.
         UniqueConstraint("message_id", "endpoint_id"),
         CheckConstraint(f"status IN ({_STATUS_VALUES})", name="status_valid"),
+        CheckConstraint("attempt_count >= 0", name="attempt_count_not_negative"),
+        # Índices parciales: solo contienen las filas que buscan el scheduler y
+        # el reaper. La mayoría de las entregas acaban en succeeded y no
+        # ocupan sitio en ellos.
+        Index(
+            "ix_deliveries_due",
+            "next_attempt_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index(
+            "ix_deliveries_in_flight",
+            "updated_at",
+            postgresql_where=text("status IN ('queued', 'sending')"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -102,7 +120,13 @@ class DeliveryModel(Base):
     endpoint_id: Mapped[UUID] = mapped_column(ForeignKey("endpoints.id"))
     status: Mapped[str] = mapped_column(String(20))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Cuándo cambió de estado por última vez: el reaper lo usa para saber
+    # cuánto tiempo lleva atascada una entrega.
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
@@ -115,6 +139,7 @@ class AttemptModel(Base):
         UniqueConstraint("delivery_id", "number", name="uq_attempts_delivery_id_number"),
         CheckConstraint("number >= 1", name="number_positive"),
         CheckConstraint("duration_ms >= 0", name="duration_not_negative"),
+        CheckConstraint(f"trigger IN ({_TRIGGER_VALUES})", name="trigger_valid"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -126,3 +151,4 @@ class AttemptModel(Base):
     response_status: Mapped[int | None] = mapped_column(Integer)
     response_body: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
+    trigger: Mapped[str] = mapped_column(String(10), server_default=AttemptTrigger.AUTO.value)

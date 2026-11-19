@@ -36,15 +36,16 @@ def test_crea_una_delivery_por_cada_endpoint_suscrito():
     assert {d.endpoint_id for d in uow.deliveries.items} == {primero.id, segundo.id}
 
 
-def test_la_delivery_queda_pendiente_y_lista_para_salir():
+def test_la_delivery_queda_encolada_para_salir_ya():
     uow = FakeUnitOfWork(endpoints=[make_endpoint(app_id=APP_ID)])
 
     message = run(uow)
 
     delivery = uow.deliveries.items[0]
     assert delivery.message_id == message.id
-    assert delivery.status is DeliveryStatus.PENDING
+    assert delivery.status is DeliveryStatus.QUEUED
     assert delivery.next_attempt_at == NOW
+    assert delivery.attempt_count == 0
 
 
 @pytest.mark.parametrize(
@@ -135,7 +136,7 @@ def test_si_el_commit_falla_no_encola_nada():
 
 def test_si_encolar_falla_el_mensaje_queda_guardado(caplog):
     # El cliente recibe 202 igual: si recibiera un error, reintentaría y el
-    # evento se duplicaría. Los sobres quedan pending en la base de datos.
+    # evento se duplicaría. Los sobres quedan queued y el reaper los rescata.
     uow = FakeUnitOfWork(endpoints=[make_endpoint(app_id=APP_ID)])
     queue = FakeTaskQueue(error=ConnectionError("Redis no responde"))
 
@@ -143,5 +144,5 @@ def test_si_encolar_falla_el_mensaje_queda_guardado(caplog):
 
     assert uow.messages.items == [message]
     assert uow.committed is True
-    assert uow.deliveries.items[0].status is DeliveryStatus.PENDING
+    assert uow.deliveries.items[0].status is DeliveryStatus.QUEUED
     assert "No se pudieron encolar" in caplog.text

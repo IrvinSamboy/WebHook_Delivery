@@ -8,11 +8,17 @@ from fakes import NOW, FakeClock, FakeHttpSender, FakeUnitOfWork, make_endpoint
 from relay.application.ports import HttpResult
 from relay.application.use_cases.deliver_message import DeliverMessage
 from relay.domain.delivery_status import DeliveryStatus
-from relay.domain.entities import RESPONSE_BODY_LIMIT, Attempt, Delivery, Message
+from relay.domain.entities import RESPONSE_BODY_LIMIT, Delivery, Message
+from relay.domain.retry_policy import RetryPolicy
 from relay.domain.signing import verify
 
+# Sin jitter, para que la hora del reintento sea exacta.
+POLICY = RetryPolicy(base_seconds=30, jitter=lambda a, b: 1.0)
+OK = HttpResult(status=200, body="ok", error=None, duration_ms=85)
+DOWN = HttpResult(status=503, body="down", error=None, duration_ms=10)
 
-def setup(status: DeliveryStatus = DeliveryStatus.PENDING, created_at=NOW):
+
+def setup(status=DeliveryStatus.QUEUED, attempt_count=0, created_at=NOW):
     """Una base de datos falsa con un sobre listo para enviar."""
     endpoint = make_endpoint()
     message = Message(
@@ -29,6 +35,7 @@ def setup(status: DeliveryStatus = DeliveryStatus.PENDING, created_at=NOW):
         status=status,
         next_attempt_at=NOW,
         created_at=NOW,
+        attempt_count=attempt_count,
     )
     uow = FakeUnitOfWork(endpoints=[endpoint])
     uow.messages.add(message)
@@ -37,20 +44,24 @@ def setup(status: DeliveryStatus = DeliveryStatus.PENDING, created_at=NOW):
 
 
 def deliver(uow: FakeUnitOfWork, delivery: Delivery, sender: FakeHttpSender) -> None:
-    DeliverMessage(uow, sender, FakeClock()).execute(delivery.id)
+    DeliverMessage(uow, sender, FakeClock(), POLICY).execute(delivery.id)
 
 
 def stored(uow: FakeUnitOfWork) -> Delivery:
     return uow.deliveries.items[0]
 
 
+# --- El resultado decide qué sigue ---
+
+
 def test_una_respuesta_2xx_marca_la_entrega_como_exitosa():
     uow, endpoint, _, delivery = setup()
-    sender = FakeHttpSender(HttpResult(status=200, body="ok", error=None, duration_ms=85))
+    sender = FakeHttpSender(OK)
 
     deliver(uow, delivery, sender)
 
     assert stored(uow).status is DeliveryStatus.SUCCEEDED
+    assert stored(uow).attempt_count == 1
     [attempt] = uow.attempts.items
     assert attempt.number == 1
     assert attempt.response_status == 200
@@ -62,29 +73,60 @@ def test_una_respuesta_2xx_marca_la_entrega_como_exitosa():
 
 
 @pytest.mark.parametrize("status", [301, 404, 503])
-def test_una_respuesta_que_no_es_2xx_marca_la_entrega_como_fallida(status):
+def test_una_respuesta_que_no_es_2xx_programa_un_reintento(status):
     uow, _, _, delivery = setup()
     sender = FakeHttpSender(HttpResult(status=status, body="nope", error=None, duration_ms=10))
 
     deliver(uow, delivery, sender)
 
-    assert stored(uow).status is DeliveryStatus.FAILED
+    assert stored(uow).status is DeliveryStatus.PENDING
+    assert stored(uow).next_attempt_at == NOW + timedelta(seconds=30)
     [attempt] = uow.attempts.items
     assert attempt.response_status == status
     assert attempt.response_body == "nope"
 
 
-def test_sin_respuesta_se_guarda_el_motivo():
+def test_sin_respuesta_se_guarda_el_motivo_y_se_reintenta():
     uow, _, _, delivery = setup()
     sender = FakeHttpSender(HttpResult(status=None, body=None, error="timeout", duration_ms=15000))
 
     deliver(uow, delivery, sender)
 
-    assert stored(uow).status is DeliveryStatus.FAILED
+    assert stored(uow).status is DeliveryStatus.PENDING
     [attempt] = uow.attempts.items
     assert attempt.error == "timeout"
     assert attempt.response_status is None
     assert attempt.response_body is None
+
+
+def test_la_espera_crece_con_cada_intento():
+    # Ya falló 3 veces: tras el 4º fallo espera 30 s × 2³ = 4 minutos.
+    uow, _, _, delivery = setup(attempt_count=3)
+
+    deliver(uow, delivery, FakeHttpSender(DOWN))
+
+    assert stored(uow).next_attempt_at == NOW + timedelta(minutes=4)
+    assert uow.attempts.items[0].number == 4
+
+
+def test_el_ultimo_intento_fallido_marca_la_entrega_como_fallida():
+    uow, _, _, delivery = setup(attempt_count=9)
+
+    deliver(uow, delivery, FakeHttpSender(DOWN))
+
+    assert stored(uow).status is DeliveryStatus.FAILED
+    assert stored(uow).attempt_count == 10
+
+
+def test_respeta_el_retry_after_del_receptor():
+    uow, _, _, delivery = setup()
+    slow_down = HttpResult(
+        status=429, body="", error=None, duration_ms=5, retry_after=timedelta(minutes=10)
+    )
+
+    deliver(uow, delivery, FakeHttpSender(slow_down))
+
+    assert stored(uow).next_attempt_at == NOW + timedelta(minutes=10)
 
 
 def test_el_body_de_la_respuesta_se_guarda_recortado():
@@ -97,8 +139,11 @@ def test_el_body_de_la_respuesta_se_guarda_recortado():
     assert len(uow.attempts.items[0].response_body) == RESPONSE_BODY_LIMIT
 
 
+# --- Qué se envía ---
+
+
 def test_envia_el_sobre_del_estandar():
-    uow, _, message, delivery = setup()
+    uow, _, _, delivery = setup()
     sender = FakeHttpSender()
 
     deliver(uow, delivery, sender)
@@ -149,6 +194,9 @@ def test_no_guarda_la_firma_en_el_intento():
     assert "webhook-signature" not in headers
 
 
+# --- Transacciones y concurrencia ---
+
+
 def test_envia_fuera_de_cualquier_transaccion():
     # En el momento del POST, la transacción 1 ya hizo commit con el sobre en
     # SENDING, y la transacción 2 todavía no empezó.
@@ -168,10 +216,10 @@ def test_envia_fuera_de_cualquier_transaccion():
 
 @pytest.mark.parametrize(
     "status",
-    [DeliveryStatus.SENDING, DeliveryStatus.SUCCEEDED, DeliveryStatus.FAILED],
+    [s for s in DeliveryStatus if s is not DeliveryStatus.QUEUED],
 )
-def test_no_reenvia_un_sobre_que_no_esta_listo(status):
-    # Así, si la misma tarea llega dos veces, la segunda no hace nada.
+def test_solo_envia_sobres_encolados(status):
+    # Una tarea repetida no hace nada, y un sobre pending espera su turno.
     uow, _, _, delivery = setup(status)
     sender = FakeHttpSender()
 
@@ -180,31 +228,13 @@ def test_no_reenvia_un_sobre_que_no_esta_listo(status):
     assert sender.requests == []
     assert uow.attempts.items == []
     assert stored(uow).status is status
-
-
-def test_tambien_envia_un_sobre_encolado():
-    uow, _, _, delivery = setup(DeliveryStatus.QUEUED)
-
-    deliver(uow, delivery, FakeHttpSender())
-
-    assert stored(uow).status is DeliveryStatus.SUCCEEDED
+    assert uow.commits == 0
 
 
 def test_un_sobre_que_no_existe_se_ignora():
     uow, *_ = setup()
     sender = FakeHttpSender()
 
-    DeliverMessage(uow, sender, FakeClock()).execute(uuid4())
+    DeliverMessage(uow, sender, FakeClock(), POLICY).execute(uuid4())
 
     assert sender.requests == []
-
-
-def test_numera_los_intentos():
-    uow, _, _, delivery = setup()
-    uow.attempts.add(
-        Attempt(uuid4(), delivery.id, 1, NOW, 10, {}, 503, "down", None)
-    )
-
-    deliver(uow, delivery, FakeHttpSender())
-
-    assert [a.number for a in uow.attempts.items] == [1, 2]

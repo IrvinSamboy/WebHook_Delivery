@@ -6,6 +6,7 @@ ordena solo los INSERT: el orden es el mismo en que se llama a add(), y un
 mensaje debe insertarse antes que sus entregas.
 """
 
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -142,6 +143,7 @@ class SqlAlchemyDeliveryRepository:
                 endpoint_id=delivery.endpoint_id,
                 status=delivery.status.value,
                 next_attempt_at=delivery.next_attempt_at,
+                attempt_count=delivery.attempt_count,
                 created_at=delivery.created_at,
             )
         )
@@ -162,14 +164,75 @@ class SqlAlchemyDeliveryRepository:
             status=DeliveryStatus(model.status),
             next_attempt_at=model.next_attempt_at,
             created_at=model.created_at,
+            attempt_count=model.attempt_count,
         )
 
     def update(self, delivery: Delivery) -> None:
         self._session.execute(
             update(DeliveryModel)
             .where(DeliveryModel.id == delivery.id)
-            .values(status=delivery.status.value, next_attempt_at=delivery.next_attempt_at)
+            .values(
+                status=delivery.status.value,
+                next_attempt_at=delivery.next_attempt_at,
+                attempt_count=delivery.attempt_count,
+                updated_at=func.now(),
+            )
         )
+
+    def claim_due(self, now: datetime, limit: int) -> list[UUID]:
+        """Pasa a queued las entregas pending cuya hora ya llegó y devuelve sus ids.
+
+        SKIP LOCKED: si otra transacción ya bloqueó una fila, se la salta en vez
+        de esperarla. Dos schedulers a la vez nunca reclaman la misma entrega.
+
+        La selección va en una CTE MATERIALIZED, que Postgres evalúa una sola
+        vez. Con `WHERE id IN (subconsulta)` el planificador puede evaluarla
+        varias veces y reclamar más filas que el límite (se comprobó: 165 con
+        limit 100).
+        """
+        due = (
+            select(DeliveryModel.id)
+            .where(
+                DeliveryModel.status == DeliveryStatus.PENDING.value,
+                DeliveryModel.next_attempt_at <= now,
+            )
+            .order_by(DeliveryModel.next_attempt_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .cte("due")
+            .prefix_with("MATERIALIZED")
+        )
+        claimed = (
+            update(DeliveryModel)
+            .where(DeliveryModel.id == due.c.id)
+            .values(status=DeliveryStatus.QUEUED.value, updated_at=func.now())
+            .returning(DeliveryModel.id)
+            .execution_options(synchronize_session=False)
+        )
+        return list(self._session.scalars(claimed))
+
+    def recover_stuck(self, older_than: timedelta) -> list[UUID]:
+        """Devuelve a pending las entregas atascadas en queued o sending.
+
+        Se compara con la hora de Postgres porque updated_at también la pone Postgres.
+        """
+        stuck = (
+            update(DeliveryModel)
+            .where(
+                DeliveryModel.status.in_(
+                    [DeliveryStatus.QUEUED.value, DeliveryStatus.SENDING.value]
+                ),
+                DeliveryModel.updated_at < func.now() - older_than,
+            )
+            .values(
+                status=DeliveryStatus.PENDING.value,
+                next_attempt_at=func.now(),
+                updated_at=func.now(),
+            )
+            .returning(DeliveryModel.id)
+            .execution_options(synchronize_session=False)
+        )
+        return list(self._session.scalars(stuck))
 
 
 class SqlAlchemyAttemptRepository:
@@ -188,13 +251,7 @@ class SqlAlchemyAttemptRepository:
                 response_status=attempt.response_status,
                 response_body=attempt.response_body,
                 error=attempt.error,
+                trigger=attempt.trigger.value,
             )
         )
         self._session.flush()
-
-    def count_by_delivery(self, delivery_id: UUID) -> int:
-        return self._session.scalar(
-            select(func.count())
-            .select_from(AttemptModel)
-            .where(AttemptModel.delivery_id == delivery_id)
-        )

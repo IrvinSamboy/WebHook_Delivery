@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -113,6 +114,13 @@ def truncate_response_body(body: str) -> str:
     return encoded[:RESPONSE_BODY_LIMIT].decode(errors="ignore")
 
 
+class AttemptTrigger(StrEnum):
+    """Quién provocó el intento."""
+
+    AUTO = "auto"  # El primer envío o un reintento automático.
+    MANUAL = "manual"  # Un reintento pedido por el cliente desde la API.
+
+
 @dataclass(slots=True)
 class Attempt:
     """Un intento de entrega: qué se envió y qué pasó.
@@ -130,3 +138,4 @@ class Attempt:
     response_status: int | None
     response_body: str | None
     error: str | None
+    trigger: AttemptTrigger = AttemptTrigger.AUTO

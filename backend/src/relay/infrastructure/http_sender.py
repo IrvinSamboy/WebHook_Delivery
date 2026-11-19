@@ -1,6 +1,8 @@
 """El único lugar que habla HTTP con los receptores, usando httpx2."""
 
 import time
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 
 import httpx2
 
@@ -37,6 +39,7 @@ class Httpx2Sender:
                 body=content.decode(errors="ignore"),
                 error=None,
                 duration_ms=_elapsed_ms(started),
+                retry_after=parse_retry_after(response.headers.get("retry-after")),
             )
         except httpx2.TimeoutException:
             error = "timeout"
@@ -45,6 +48,26 @@ class Httpx2Sender:
         except httpx2.HTTPError:
             error = "request_error"
         return HttpResult(status=None, body=None, error=error, duration_ms=_elapsed_ms(started))
+
+
+def parse_retry_after(value: str | None, now: datetime | None = None) -> timedelta | None:
+    """Interpreta el header Retry-After: segundos ("120") o una fecha HTTP.
+
+    Devuelve None si falta o no se entiende: un header mal formado del
+    receptor no debe romper la entrega, solo se ignora.
+    """
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return timedelta(seconds=int(value))
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:  # Fecha sin zona horaria: no es una fecha HTTP válida.
+        return None
+    return max(when - (now or datetime.now(UTC)), timedelta(0))
 
 
 def _read_at_most(response: httpx2.Response, limit: int) -> bytes:

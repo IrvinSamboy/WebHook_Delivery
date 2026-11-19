@@ -1,10 +1,11 @@
 """Versiones falsas de los puertos: guardan todo en listas, sin base de datos."""
 
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from relay.application.ports import HttpResult
+from relay.domain.delivery_status import DeliveryStatus
 from relay.domain.entities import (
     ApiKey,
     Application,
@@ -88,6 +89,10 @@ class FakeMessageRepository:
 class FakeDeliveryRepository:
     def __init__(self) -> None:
         self.items: list[Delivery] = []
+        # La entidad no tiene updated_at: cada test dice qué entregas están
+        # atascadas, y se guarda con qué antigüedad se llamó a recover_stuck.
+        self.stuck: set[UUID] = set()
+        self.recover_calls: list[timedelta] = []
 
     def add(self, delivery: Delivery) -> None:
         self.items.append(delivery)
@@ -101,6 +106,30 @@ class FakeDeliveryRepository:
     def update(self, delivery: Delivery) -> None:
         self.items = [replace(delivery) if d.id == delivery.id else d for d in self.items]
 
+    def claim_due(self, now: datetime, limit: int) -> list[UUID]:
+        due = sorted(
+            (
+                d
+                for d in self.items
+                if d.status is DeliveryStatus.PENDING and d.next_attempt_at <= now
+            ),
+            key=lambda d: d.next_attempt_at,
+        )[:limit]
+        for delivery in due:
+            delivery.status = DeliveryStatus.QUEUED
+        return [d.id for d in due]
+
+    def recover_stuck(self, older_than: timedelta) -> list[UUID]:
+        self.recover_calls.append(older_than)
+        rescued = [
+            d
+            for d in self.items
+            if d.id in self.stuck and d.status in (DeliveryStatus.QUEUED, DeliveryStatus.SENDING)
+        ]
+        for delivery in rescued:
+            delivery.status = DeliveryStatus.PENDING
+        return [d.id for d in rescued]
+
 
 class FakeAttemptRepository:
     def __init__(self) -> None:
@@ -108,9 +137,6 @@ class FakeAttemptRepository:
 
     def add(self, attempt: Attempt) -> None:
         self.items.append(attempt)
-
-    def count_by_delivery(self, delivery_id: UUID) -> int:
-        return sum(1 for a in self.items if a.delivery_id == delivery_id)
 
 
 class FakeUnitOfWork:
