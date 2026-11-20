@@ -9,6 +9,7 @@ from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.deliver_message import DeliverMessage
 from relay.application.use_cases.recover_stuck_deliveries import RecoverStuckDeliveries
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
+from relay.application.use_cases.retry_delivery import RetryDelivery
 from relay.application.use_cases.schedule_due_deliveries import ScheduleDueDeliveries
 from relay.config import get_settings
 from relay.domain.retry_policy import RetryPolicy
@@ -71,3 +72,7 @@ def schedule_due_deliveries() -> ScheduleDueDeliveries:
 
 def recover_stuck_deliveries() -> RecoverStuckDeliveries:
     return RecoverStuckDeliveries(_unit_of_work())
+
+
+def retry_delivery() -> RetryDelivery:
+    return RetryDelivery(_unit_of_work(), SystemClock(), task_queue())

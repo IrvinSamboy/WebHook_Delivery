@@ -134,3 +134,40 @@ def test_un_sobre_entregado_ya_no_cambia_de_estado():
 
 def test_todos_los_estados_tienen_reglas():
     assert set(ALLOWED_TRANSITIONS) == set(DeliveryStatus)
+
+
+# --- Reintento manual ---
+
+
+def test_un_sobre_fallido_se_puede_reintentar_a_mano():
+    delivery = make_delivery(DeliveryStatus.FAILED, attempt_count=10)
+
+    delivery.retry_manually(LATER)
+
+    assert delivery.status is DeliveryStatus.QUEUED
+    assert delivery.next_attempt_at == LATER
+    assert delivery.attempt_count == 10  # No se reinicia: es un intento extra.
+
+
+@pytest.mark.parametrize(
+    "status", [s for s in DeliveryStatus if s is not DeliveryStatus.FAILED]
+)
+def test_solo_se_reintenta_a_mano_lo_que_fallo(status):
+    delivery = make_delivery(status)
+
+    # Incluye pending: la tabla permite PENDING → QUEUED, pero eso es cosa del scheduler.
+    with pytest.raises(InvalidTransition):
+        delivery.retry_manually(LATER)
+
+    assert delivery.status is status
+
+
+def test_si_el_reintento_manual_falla_vuelve_a_failed_sin_mas_reintentos():
+    delivery = make_delivery(DeliveryStatus.FAILED, attempt_count=10)
+    delivery.retry_manually(LATER)
+    delivery.start_sending()
+
+    delivery.record_attempt(succeeded=False, now=LATER, policy=POLICY)
+
+    assert delivery.status is DeliveryStatus.FAILED
+    assert delivery.attempt_count == 11

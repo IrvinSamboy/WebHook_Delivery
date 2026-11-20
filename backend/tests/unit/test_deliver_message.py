@@ -8,7 +8,7 @@ from fakes import NOW, FakeClock, FakeHttpSender, FakeUnitOfWork, make_endpoint
 from relay.application.ports import HttpResult
 from relay.application.use_cases.deliver_message import DeliverMessage
 from relay.domain.delivery_status import DeliveryStatus
-from relay.domain.entities import RESPONSE_BODY_LIMIT, Delivery, Message
+from relay.domain.entities import RESPONSE_BODY_LIMIT, AttemptTrigger, Delivery, Message
 from relay.domain.retry_policy import RetryPolicy
 from relay.domain.signing import verify
 
@@ -238,3 +238,27 @@ def test_un_sobre_que_no_existe_se_ignora():
     DeliverMessage(uow, sender, FakeClock(), POLICY).execute(uuid4())
 
     assert sender.requests == []
+
+
+# --- Quién provocó el intento ---
+
+
+def test_el_intento_es_automatico_por_defecto():
+    uow, _, _, delivery = setup()
+
+    deliver(uow, delivery, FakeHttpSender(OK))
+
+    assert uow.attempts.items[0].trigger is AttemptTrigger.AUTO
+
+
+def test_registra_el_intento_manual_como_manual():
+    uow, _, _, delivery = setup(attempt_count=10)
+
+    DeliverMessage(uow, FakeHttpSender(DOWN), FakeClock(), POLICY).execute(
+        delivery.id, AttemptTrigger.MANUAL
+    )
+
+    [attempt] = uow.attempts.items
+    assert attempt.trigger is AttemptTrigger.MANUAL
+    assert attempt.number == 11
+    assert stored(uow).status is DeliveryStatus.FAILED

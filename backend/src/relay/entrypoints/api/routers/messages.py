@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.entrypoints.api.deps import CurrentAppId, SessionDep
-from relay.entrypoints.api.schemas import MessageAccepted, MessageIn, MessageOut
+from relay.entrypoints.api.schemas import AttemptOut, MessageAccepted, MessageIn, MessageOut
 from relay.infrastructure.db import queries
 
 router = APIRouter(prefix="/v1/messages", tags=["messages"])
@@ -28,3 +28,11 @@ def get_message(message_id: UUID, app_id: CurrentAppId, session: SessionDep) -> 
     if message is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mensaje no encontrado")
     return MessageOut(**message)
+
+
+@router.get("/{message_id}/attempts")
+def list_attempts(message_id: UUID, app_id: CurrentAppId, session: SessionDep) -> list[AttemptOut]:
+    attempts = queries.list_attempts(session, app_id, message_id)
+    if attempts is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mensaje no encontrado")
+    return [AttemptOut(**attempt) for attempt in attempts]

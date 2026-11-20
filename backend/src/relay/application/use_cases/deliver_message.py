@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 from relay.application.ports import Clock, HttpSender, UnitOfWork
 from relay.domain.delivery_status import DeliveryStatus
-from relay.domain.entities import Attempt, Message, truncate_response_body
+from relay.domain.entities import Attempt, AttemptTrigger, Message, truncate_response_body
 from relay.domain.retry_policy import RetryPolicy
 from relay.domain.signing import sign
 
@@ -38,7 +38,9 @@ class DeliverMessage:
         self._clock = clock
         self._policy = policy
 
-    def execute(self, delivery_id: UUID) -> None:
+    def execute(
+        self, delivery_id: UUID, trigger: AttemptTrigger = AttemptTrigger.AUTO
+    ) -> None:
         # Transacción 1: reservar el sobre.
         with self._uow as uow:
             delivery = uow.deliveries.get_for_update(delivery_id)
@@ -83,6 +85,7 @@ class DeliverMessage:
                         None if result.body is None else truncate_response_body(result.body)
                     ),
                     error=result.error,
+                    trigger=trigger,
                 )
             )
             delivery.record_attempt(

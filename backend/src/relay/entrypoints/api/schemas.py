@@ -43,7 +43,22 @@ class DeliveryOut(BaseModel):
     id: UUID
     endpoint_id: UUID
     status: str
+    attempt_count: int
     next_attempt_at: datetime
+
+
+class AttemptOut(BaseModel):
+    id: UUID
+    delivery_id: UUID
+    endpoint_id: UUID
+    number: int
+    trigger: str
+    started_at: datetime
+    duration_ms: int
+    request_headers: dict[str, str]
+    response_status: int | None
+    response_body: str | None
+    error: str | None
 
 
 class MessageOut(BaseModel):

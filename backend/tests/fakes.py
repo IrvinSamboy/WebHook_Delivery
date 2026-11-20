@@ -10,6 +10,7 @@ from relay.domain.entities import (
     ApiKey,
     Application,
     Attempt,
+    AttemptTrigger,
     Delivery,
     Endpoint,
     Message,
@@ -168,15 +169,19 @@ class FakeTaskQueue:
 
     def __init__(self, on_enqueue=None, error: Exception | None = None) -> None:
         self.enqueued: list[UUID] = []
+        self.triggers: list[AttemptTrigger] = []
         self.on_enqueue = on_enqueue
         self.error = error
 
-    def enqueue_delivery(self, delivery_id: UUID) -> None:
+    def enqueue_delivery(
+        self, delivery_id: UUID, trigger: AttemptTrigger = AttemptTrigger.AUTO
+    ) -> None:
         if self.error:
             raise self.error
         if self.on_enqueue:
             self.on_enqueue()
         self.enqueued.append(delivery_id)
+        self.triggers.append(trigger)
 
 
 @dataclass

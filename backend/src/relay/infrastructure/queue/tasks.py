@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from relay import container
+from relay.domain.entities import AttemptTrigger
 from relay.infrastructure.queue.celery_app import (
     DELIVER_TASK,
     RECOVER_TASK,
@@ -12,8 +13,10 @@ from relay.infrastructure.queue.celery_app import (
 
 
 @app.task(name=DELIVER_TASK)
-def deliver(delivery_id: str) -> None:
-    container.deliver_message().execute(UUID(delivery_id))
+def deliver(delivery_id: str, trigger: str = AttemptTrigger.AUTO.value) -> None:
+    # trigger tiene valor por defecto: las tareas encoladas antes de que
+    # existiera siguen funcionando.
+    container.deliver_message().execute(UUID(delivery_id), AttemptTrigger(trigger))
 
 
 @app.task(name=SCHEDULE_TASK)

@@ -13,6 +13,7 @@ from relay.domain.entities import (
     ApiKey,
     Application,
     Attempt,
+    AttemptTrigger,
     Delivery,
     Endpoint,
     Message,
@@ -50,9 +51,11 @@ class HttpSender(Protocol):
 
 
 class TaskQueue(Protocol):
-    """Avisa a los workers de que hay trabajo. Solo transporta ids."""
+    """Avisa a los workers de que hay trabajo. Solo transporta ids y el trigger."""
 
-    def enqueue_delivery(self, delivery_id: UUID) -> None: ...
+    def enqueue_delivery(
+        self, delivery_id: UUID, trigger: AttemptTrigger = AttemptTrigger.AUTO
+    ) -> None: ...
 
 
 class ApplicationRepository(Protocol):

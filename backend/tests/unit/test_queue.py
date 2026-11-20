@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 
 from relay import container
+from relay.domain.entities import AttemptTrigger
 from relay.infrastructure.queue import tasks
 from relay.infrastructure.queue.celery_app import (
     DELIVER_TASK,
@@ -17,16 +18,31 @@ def test_la_tarea_entrega_el_sobre_indicado(monkeypatch):
     delivered = []
 
     class FakeDeliverMessage:
-        def execute(self, delivery_id):
-            delivered.append(delivery_id)
+        def execute(self, delivery_id, trigger):
+            delivered.append((delivery_id, trigger))
 
     monkeypatch.setattr(container, "deliver_message", FakeDeliverMessage)
     delivery_id = uuid4()
 
     # Llamar a la tarea como función la ejecuta aquí mismo, sin worker ni Redis.
-    tasks.deliver(str(delivery_id))
+    tasks.deliver(str(delivery_id), "manual")
 
-    assert delivered == [delivery_id]
+    assert delivered == [(delivery_id, AttemptTrigger.MANUAL)]
+
+
+def test_una_tarea_sin_trigger_cuenta_como_automatica(monkeypatch):
+    delivered = []
+
+    class FakeDeliverMessage:
+        def execute(self, delivery_id, trigger):
+            delivered.append(trigger)
+
+    monkeypatch.setattr(container, "deliver_message", FakeDeliverMessage)
+
+    # Así llegan las tareas encoladas antes de este cambio.
+    tasks.deliver(str(uuid4()))
+
+    assert delivered == [AttemptTrigger.AUTO]
 
 
 def test_la_cola_envia_el_id_a_la_tarea_de_entrega():
@@ -38,10 +54,15 @@ def test_la_cola_envia_el_id_a_la_tarea_de_entrega():
 
     delivery_id = uuid4()
 
-    CeleryTaskQueue(FakeCelery()).enqueue_delivery(delivery_id)
+    queue = CeleryTaskQueue(FakeCelery())
+    queue.enqueue_delivery(delivery_id)
+    queue.enqueue_delivery(delivery_id, AttemptTrigger.MANUAL)
 
-    # Un str, no un UUID: los mensajes de la cola van en JSON.
-    assert sent == [(DELIVER_TASK, [str(delivery_id)])]
+    # Strings, no UUID ni enum: los mensajes de la cola van en JSON.
+    assert sent == [
+        (DELIVER_TASK, [str(delivery_id), "auto"]),
+        (DELIVER_TASK, [str(delivery_id), "manual"]),
+    ]
 
 
 def test_la_cola_y_la_tarea_usan_el_mismo_nombre():

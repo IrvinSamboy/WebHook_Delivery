@@ -7,9 +7,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fakes import FakeClock, FakeTaskQueue, FakeUnitOfWork, make_endpoint
+from relay.domain.delivery_status import DeliveryStatus
+from relay.domain.entities import Delivery, Message
 from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
+from relay.application.use_cases.retry_delivery import RetryDelivery
 from relay.domain.api_keys import hash_api_key, prefix_of
 from relay.entrypoints.api import deps
 from relay.entrypoints.api.main import app
@@ -41,6 +44,7 @@ def client(uow):
         deps.get_session: lambda: None,
         container.create_message: lambda: CreateMessage(uow, FakeClock(), FakeTaskQueue()),
         container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock()),
+        container.retry_delivery: lambda: RetryDelivery(uow, FakeClock(), FakeTaskQueue()),
     }
     yield TestClient(app)
     app.dependency_overrides = {}
@@ -64,6 +68,8 @@ def client(uow):
         pytest.param("POST", "/v1/messages", VALID_MESSAGE, id="crear-mensaje"),
         pytest.param("GET", f"/v1/messages/{uuid4()}", None, id="leer-mensaje"),
         pytest.param("POST", "/v1/endpoints", VALID_ENDPOINT, id="registrar-endpoint"),
+        pytest.param("GET", f"/v1/messages/{uuid4()}/attempts", None, id="leer-intentos"),
+        pytest.param("POST", f"/v1/deliveries/{uuid4()}/retry", None, id="reintentar"),
     ],
 )
 def test_responde_401_sin_una_key_valida(client, uow, method, path, body, headers):
@@ -175,3 +181,103 @@ def test_leer_mensaje_con_id_invalido_responde_422(client):
     response = client.get("/v1/messages/no-es-un-uuid", headers=AUTH)
 
     assert response.status_code == 422
+
+
+# --- POST /v1/deliveries/{id}/retry ---
+
+
+def add_delivery(uow, status, app_id=APP_ID) -> Delivery:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    message = Message(id=uuid4(), app_id=app_id, event_type="order.paid", payload={}, created_at=now)
+    delivery = Delivery(
+        id=uuid4(),
+        message_id=message.id,
+        endpoint_id=uuid4(),
+        status=status,
+        next_attempt_at=now,
+        created_at=now,
+        attempt_count=10,
+    )
+    uow.messages.add(message)
+    uow.deliveries.add(delivery)
+    return delivery
+
+
+def test_reintentar_una_entrega_fallida_responde_202(client, uow):
+    delivery = add_delivery(uow, DeliveryStatus.FAILED)
+
+    response = client.post(f"/v1/deliveries/{delivery.id}/retry", headers=AUTH)
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+    assert response.json()["attempt_count"] == 10
+
+
+def test_reintentar_una_entrega_que_no_fallo_responde_409(client, uow):
+    delivery = add_delivery(uow, DeliveryStatus.SUCCEEDED)
+
+    response = client.post(f"/v1/deliveries/{delivery.id}/retry", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "succeeded" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("de_otra_app", [False, True], ids=["inexistente", "de-otra-aplicacion"])
+def test_reintentar_una_entrega_ajena_o_inexistente_responde_404(client, uow, de_otra_app):
+    delivery_id = add_delivery(uow, DeliveryStatus.FAILED, app_id=uuid4()).id if de_otra_app else uuid4()
+
+    response = client.post(f"/v1/deliveries/{delivery_id}/retry", headers=AUTH)
+
+    assert response.status_code == 404
+
+
+# --- GET /v1/messages/{id}/attempts ---
+
+
+def test_leer_intentos_responde_200_y_filtra_por_aplicacion(client, monkeypatch):
+    message_id = uuid4()
+    calls = []
+    attempt = {
+        "id": uuid4(),
+        "delivery_id": uuid4(),
+        "endpoint_id": uuid4(),
+        "number": 1,
+        "trigger": "auto",
+        "started_at": datetime(2026, 1, 1, tzinfo=UTC),
+        "duration_ms": 85,
+        "request_headers": {"webhook-id": str(message_id)},
+        "response_status": 500,
+        "response_body": "down",
+        "error": None,
+    }
+
+    def fake_list_attempts(_session, app_id, requested_id):
+        calls.append((app_id, requested_id))
+        return [attempt]
+
+    monkeypatch.setattr(queries, "list_attempts", fake_list_attempts)
+
+    response = client.get(f"/v1/messages/{message_id}/attempts", headers=AUTH)
+
+    assert response.status_code == 200
+    assert calls == [(APP_ID, message_id)]
+    [body] = response.json()
+    assert body["response_status"] == 500
+    assert body["trigger"] == "auto"
+
+
+def test_leer_intentos_de_un_mensaje_sin_intentos_devuelve_lista_vacia(client, monkeypatch):
+    monkeypatch.setattr(queries, "list_attempts", lambda *_: [])
+
+    response = client.get(f"/v1/messages/{uuid4()}/attempts", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_leer_intentos_de_un_mensaje_ajeno_o_inexistente_responde_404(client, monkeypatch):
+    monkeypatch.setattr(queries, "list_attempts", lambda *_: None)
+
+    response = client.get(f"/v1/messages/{uuid4()}/attempts", headers=AUTH)
+
+    assert response.status_code == 404

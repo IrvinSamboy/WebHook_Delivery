@@ -95,6 +95,19 @@ class Delivery:
             self._move_to(DeliveryStatus.PENDING)
             self.next_attempt_at = now + policy.delay_after(self.attempt_count, retry_after)
 
+    def retry_manually(self, now: datetime) -> None:
+        """El cliente pide otro intento de un sobre fallido.
+
+        Es un solo intento: attempt_count no se reinicia, así que si vuelve a
+        fallar record_attempt lo devuelve directamente a failed.
+        """
+        # La tabla permite PENDING → QUEUED (el scheduler), pero a mano solo
+        # se reintenta lo que ya falló.
+        if self.status is not DeliveryStatus.FAILED:
+            raise InvalidTransition(self.status, DeliveryStatus.QUEUED)
+        self._move_to(DeliveryStatus.QUEUED)
+        self.next_attempt_at = now
+
     def _move_to(self, target: DeliveryStatus) -> None:
         if target not in ALLOWED_TRANSITIONS[self.status]:
             raise InvalidTransition(self.status, target)
