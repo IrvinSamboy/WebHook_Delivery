@@ -1,12 +1,21 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.entrypoints.api.deps import CurrentAppId, SessionDep
-from relay.entrypoints.api.schemas import AttemptOut, MessageAccepted, MessageIn, MessageOut
+from relay.entrypoints.api.pagination import decode_cursor, encode_cursor
+from relay.entrypoints.api.schemas import (
+    AttemptOut,
+    EventType,
+    MessageAccepted,
+    MessageIn,
+    MessageOut,
+    MessagePage,
+    MessageSummary,
+)
 from relay.infrastructure.db import queries
 
 router = APIRouter(prefix="/v1/messages", tags=["messages"])
@@ -20,6 +29,33 @@ def create_message(
 ) -> MessageAccepted:
     message = use_case.execute(app_id, body.event_type, body.payload)
     return MessageAccepted(id=message.id)
+
+
+@router.get("")
+def list_messages(
+    app_id: CurrentAppId,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: str | None = None,
+    event_type: Annotated[EventType | None, Query()] = None,
+) -> MessagePage:
+    """Los mensajes de la aplicación, del más nuevo al más viejo.
+
+    Para la página siguiente, repite la petición con `cursor=next_cursor`.
+    """
+    try:
+        before = None if cursor is None else decode_cursor(cursor)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Cursor inválido"
+        ) from None
+
+    rows, has_more = queries.list_messages(session, app_id, limit, before, event_type)
+    last = rows[-1] if rows else None
+    return MessagePage(
+        data=[MessageSummary(**row) for row in rows],
+        next_cursor=encode_cursor(last["created_at"], last["id"]) if has_more and last else None,
+    )
 
 
 @router.get("/{message_id}")

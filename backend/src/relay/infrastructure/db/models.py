@@ -93,6 +93,11 @@ class EndpointModel(Base):
 
 class MessageModel(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        # Para listar los mensajes de una aplicación por páginas: el cursor
+        # salta directo a (created_at, id) en vez de recorrer la tabla.
+        Index("ix_messages_app_id_created_at_id", "app_id", "created_at", "id"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     app_id: Mapped[UUID] = mapped_column(ForeignKey("applications.id"))
@@ -123,6 +128,8 @@ class DeliveryModel(Base):
             "updated_at",
             postgresql_where=text("status IN ('queued', 'sending')"),
         ),
+        # Para las estadísticas de un endpoint en una ventana de tiempo.
+        Index("ix_deliveries_endpoint_id_created_at", "endpoint_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)

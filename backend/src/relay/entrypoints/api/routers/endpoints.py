@@ -14,6 +14,7 @@ from relay.entrypoints.api.schemas import (
     EndpointIn,
     EndpointOut,
     EndpointPatch,
+    EndpointStats,
     SecretRotated,
 )
 from relay.infrastructure.db import queries
@@ -51,6 +52,17 @@ def get_endpoint(endpoint_id: UUID, app_id: CurrentAppId, session: SessionDep) -
     if endpoint is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
     return EndpointOut(**endpoint)
+
+
+@router.get("/{endpoint_id}/stats")
+def get_endpoint_stats(
+    endpoint_id: UUID, app_id: CurrentAppId, session: SessionDep
+) -> EndpointStats:
+    """Entregas de las últimas 24 h por estado y tasa de éxito."""
+    stats = queries.endpoint_stats(session, app_id, endpoint_id)
+    if stats is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    return EndpointStats(**stats)
 
 
 @router.patch("/{endpoint_id}")

@@ -124,3 +124,23 @@ class SecretRotated(BaseModel):
     id: UUID
     secret: str
     previous_secret_expires_at: datetime | None
+
+
+class MessageSummary(BaseModel):
+    id: UUID
+    event_type: str
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class MessagePage(BaseModel):
+    data: list[MessageSummary]
+    # null en la última página.
+    next_cursor: str | None
+
+
+class EndpointStats(BaseModel):
+    since: datetime
+    deliveries: dict[str, int]
+    # Entregas exitosas entre las terminadas (succeeded + failed); null si no hay.
+    success_rate: float | None

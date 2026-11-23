@@ -18,6 +18,7 @@ from relay.application.use_cases.update_endpoint import UpdateEndpoint
 from relay.domain.api_keys import hash_api_key, prefix_of
 from relay.entrypoints.api import deps
 from relay.entrypoints.api.main import app
+from relay.entrypoints.api.pagination import decode_cursor, encode_cursor
 from relay.infrastructure.db import queries
 
 APP_ID = uuid4()
@@ -76,6 +77,8 @@ def client(uow):
         pytest.param("GET", f"/v1/endpoints/{uuid4()}", None, id="leer-endpoint"),
         pytest.param("PATCH", f"/v1/endpoints/{uuid4()}", {"enabled": False}, id="editar-endpoint"),
         pytest.param("POST", f"/v1/endpoints/{uuid4()}/rotate-secret", None, id="rotar-secreto"),
+        pytest.param("GET", "/v1/messages", None, id="listar-mensajes"),
+        pytest.param("GET", f"/v1/endpoints/{uuid4()}/stats", None, id="estadisticas"),
         pytest.param("GET", f"/v1/messages/{uuid4()}/attempts", None, id="leer-intentos"),
         pytest.param("POST", f"/v1/deliveries/{uuid4()}/retry", None, id="reintentar"),
     ],
@@ -438,3 +441,123 @@ def test_rotar_secreto_de_otra_aplicacion_responde_404(client, uow):
 
     assert response.status_code == 404
     assert uow.endpoints.items[-1].secret == old_secret
+
+
+# --- GET /v1/messages ---
+
+
+def message_row(created_at=None):
+    return {
+        "id": uuid4(),
+        "event_type": "order.paid",
+        "payload": {"n": 1},
+        "created_at": created_at or datetime(2026, 1, 1, tzinfo=UTC),
+    }
+
+
+class FakeListMessages:
+    """Sustituye la consulta: guarda cómo se la llamó y devuelve `result`."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.result: tuple[list, bool] = ([], False)
+
+    def __call__(self, _session, app_id, limit, before, event_type):
+        self.calls.append(
+            {"app_id": app_id, "limit": limit, "before": before, "event_type": event_type}
+        )
+        return self.result
+
+
+@pytest.fixture
+def list_messages(monkeypatch):
+    fake = FakeListMessages()
+    monkeypatch.setattr(queries, "list_messages", fake)
+    return fake
+
+
+def test_listar_mensajes_usa_valores_por_defecto(client, list_messages):
+    response = client.get("/v1/messages", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"data": [], "next_cursor": None}
+    assert list_messages.calls == [{"app_id": APP_ID, "limit": 50, "before": None, "event_type": None}]
+
+
+def test_si_quedan_mas_el_cursor_apunta_al_ultimo_de_la_pagina(client, list_messages):
+    rows = [message_row(), message_row()]
+    list_messages.result = (rows, True)
+
+    response = client.get("/v1/messages?limit=2", headers=AUTH)
+
+    cursor = response.json()["next_cursor"]
+    assert decode_cursor(cursor) == (rows[-1]["created_at"], rows[-1]["id"])
+    assert [m["id"] for m in response.json()["data"]] == [str(r["id"]) for r in rows]
+
+
+def test_en_la_ultima_pagina_no_hay_cursor(client, list_messages):
+    list_messages.result = ([message_row()], False)
+
+    response = client.get("/v1/messages", headers=AUTH)
+
+    assert response.json()["next_cursor"] is None
+
+
+def test_el_cursor_y_el_filtro_llegan_a_la_consulta(client, list_messages):
+    position = (datetime(2026, 1, 1, tzinfo=UTC), uuid4())
+    cursor = encode_cursor(*position)
+
+    client.get(f"/v1/messages?cursor={cursor}&event_type=order.paid&limit=10", headers=AUTH)
+
+    assert list_messages.calls[0]["before"] == position
+    assert list_messages.calls[0]["event_type"] == "order.paid"
+    assert list_messages.calls[0]["limit"] == 10
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("limit=0", id="limit-0"),
+        pytest.param("limit=101", id="limit-101"),
+        pytest.param("cursor=basura", id="cursor-invalido"),
+        pytest.param("event_type=con%20espacio", id="evento-invalido"),
+    ],
+)
+def test_listar_mensajes_responde_422_con_parametros_invalidos(client, list_messages, query):
+    response = client.get(f"/v1/messages?{query}", headers=AUTH)
+
+    assert response.status_code == 422
+    assert list_messages.calls == []
+
+
+# --- GET /v1/endpoints/{id}/stats ---
+
+
+def test_estadisticas_responde_200_y_filtra_por_aplicacion(client, monkeypatch):
+    endpoint_id = uuid4()
+    calls = []
+    stats = {
+        "since": datetime(2026, 1, 1, tzinfo=UTC),
+        "deliveries": {"pending": 1, "queued": 0, "sending": 0, "succeeded": 3, "failed": 1},
+        "success_rate": 0.75,
+    }
+
+    def fake_stats(_session, app_id, requested_id):
+        calls.append((app_id, requested_id))
+        return stats
+
+    monkeypatch.setattr(queries, "endpoint_stats", fake_stats)
+
+    response = client.get(f"/v1/endpoints/{endpoint_id}/stats", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["success_rate"] == 0.75
+    assert calls == [(APP_ID, endpoint_id)]
+
+
+def test_estadisticas_de_un_endpoint_ajeno_responde_404(client, monkeypatch):
+    monkeypatch.setattr(queries, "endpoint_stats", lambda *_: None)
+
+    response = client.get(f"/v1/endpoints/{uuid4()}/stats", headers=AUTH)
+
+    assert response.status_code == 404
