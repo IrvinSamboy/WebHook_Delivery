@@ -34,9 +34,10 @@ class Receiver(BaseHTTPRequestHandler):
         except ValueError:  # Secreto mal copiado: no es base64 válido.
             valid = False
         status = FORCED_STATUS or (204 if valid else 401)
+        signatures = len(self.headers.get("webhook-signature", "").split())
         mark = "✅ firma válida  " if valid else "❌ firma inválida"
         print(
-            f"{time.strftime('%H:%M:%S')} {mark} → {status} "
+            f"{time.strftime('%H:%M:%S')} {mark} → {status} firmas={signatures} "
             f"webhook-id={webhook_id} {body.decode(errors='replace')}",
             flush=True,
         )

@@ -78,7 +78,26 @@ class FakeEndpointRepository:
         return replace(found[0], event_types=list(found[0].event_types)) if found else None
 
     def update(self, endpoint: Endpoint) -> None:
-        self.items = [replace(endpoint) if e.id == endpoint.id else e for e in self.items]
+        # Como el repositorio real: solo url, event_types y enabled.
+        self.items = [
+            replace(e, url=endpoint.url, event_types=endpoint.event_types, enabled=endpoint.enabled)
+            if e.id == endpoint.id
+            else e
+            for e in self.items
+        ]
+
+    def update_secrets(self, endpoint: Endpoint) -> None:
+        self.items = [
+            replace(
+                e,
+                secret=endpoint.secret,
+                previous_secret=endpoint.previous_secret,
+                previous_secret_expires_at=endpoint.previous_secret_expires_at,
+            )
+            if e.id == endpoint.id
+            else e
+            for e in self.items
+        ]
 
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
         return [endpoint for endpoint in self.items if endpoint.app_id == app_id]

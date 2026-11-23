@@ -21,6 +21,7 @@ _ENDPOINT_COLUMNS = (
     EndpointModel.event_types,
     EndpointModel.enabled,
     EndpointModel.created_at,
+    EndpointModel.previous_secret_expires_at,
 )
 
 

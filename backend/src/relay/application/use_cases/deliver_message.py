@@ -65,7 +65,12 @@ class DeliverMessage:
             "webhook-id": str(message.id),  # El mismo en cada reintento.
             "webhook-timestamp": str(timestamp),
         }
-        signature = sign(endpoint.secret, str(message.id), timestamp, body)
+        # Durante el periodo de gracia de una rotación van dos firmas separadas
+        # por un espacio; el receptor acepta el webhook si cualquiera coincide.
+        signature = " ".join(
+            sign(secret, str(message.id), timestamp, body)
+            for secret in endpoint.signing_secrets(started_at)
+        )
         result = self._sender.send(
             endpoint.url, {**headers, "webhook-signature": signature}, body
         )

@@ -76,6 +76,8 @@ class SqlAlchemyEndpointRepository:
                 app_id=endpoint.app_id,
                 url=endpoint.url,
                 secret_encrypted=self._cipher.encrypt(endpoint.secret),
+                previous_secret_encrypted=self._encrypt_optional(endpoint.previous_secret),
+                previous_secret_expires_at=endpoint.previous_secret_expires_at,
                 event_types=endpoint.event_types,
                 enabled=endpoint.enabled,
                 created_at=endpoint.created_at,
@@ -100,6 +102,17 @@ class SqlAlchemyEndpointRepository:
             .values(url=endpoint.url, event_types=endpoint.event_types, enabled=endpoint.enabled)
         )
 
+    def update_secrets(self, endpoint: Endpoint) -> None:
+        self._session.execute(
+            update(EndpointModel)
+            .where(EndpointModel.id == endpoint.id)
+            .values(
+                secret_encrypted=self._cipher.encrypt(endpoint.secret),
+                previous_secret_encrypted=self._encrypt_optional(endpoint.previous_secret),
+                previous_secret_expires_at=endpoint.previous_secret_expires_at,
+            )
+        )
+
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
         models = self._session.scalars(
             select(EndpointModel).where(EndpointModel.app_id == app_id)
@@ -115,7 +128,16 @@ class SqlAlchemyEndpointRepository:
             event_types=list(model.event_types),
             enabled=model.enabled,
             created_at=model.created_at,
+            previous_secret=(
+                None
+                if model.previous_secret_encrypted is None
+                else self._cipher.decrypt(model.previous_secret_encrypted)
+            ),
+            previous_secret_expires_at=model.previous_secret_expires_at,
         )
+
+    def _encrypt_optional(self, secret: str | None) -> str | None:
+        return None if secret is None else self._cipher.encrypt(secret)
 
 
 class SqlAlchemyMessageRepository:

@@ -13,6 +13,7 @@ from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
 from relay.application.use_cases.retry_delivery import RetryDelivery
+from relay.application.use_cases.rotate_endpoint_secret import RotateEndpointSecret
 from relay.application.use_cases.update_endpoint import UpdateEndpoint
 from relay.domain.api_keys import hash_api_key, prefix_of
 from relay.entrypoints.api import deps
@@ -47,6 +48,7 @@ def client(uow):
         container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock()),
         container.retry_delivery: lambda: RetryDelivery(uow, FakeClock(), FakeTaskQueue()),
         container.update_endpoint: lambda: UpdateEndpoint(uow),
+        container.rotate_endpoint_secret: lambda: RotateEndpointSecret(uow, FakeClock()),
     }
     yield TestClient(app)
     app.dependency_overrides = {}
@@ -73,6 +75,7 @@ def client(uow):
         pytest.param("GET", "/v1/endpoints", None, id="listar-endpoints"),
         pytest.param("GET", f"/v1/endpoints/{uuid4()}", None, id="leer-endpoint"),
         pytest.param("PATCH", f"/v1/endpoints/{uuid4()}", {"enabled": False}, id="editar-endpoint"),
+        pytest.param("POST", f"/v1/endpoints/{uuid4()}/rotate-secret", None, id="rotar-secreto"),
         pytest.param("GET", f"/v1/messages/{uuid4()}/attempts", None, id="leer-intentos"),
         pytest.param("POST", f"/v1/deliveries/{uuid4()}/retry", None, id="reintentar"),
     ],
@@ -298,6 +301,7 @@ def endpoint_row(endpoint_id=None):
         "event_types": ["order.paid"],
         "enabled": True,
         "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+        "previous_secret_expires_at": None,
     }
 
 
@@ -327,7 +331,14 @@ def test_leer_endpoint_nunca_muestra_el_secreto(client, monkeypatch):
     response = client.get(f"/v1/endpoints/{endpoint_id}", headers=AUTH)
 
     assert response.status_code == 200
-    assert set(response.json()) == {"id", "url", "event_types", "enabled", "created_at"}
+    assert set(response.json()) == {
+        "id",
+        "url",
+        "event_types",
+        "enabled",
+        "created_at",
+        "previous_secret_expires_at",
+    }
 
 
 def test_leer_endpoint_inexistente_responde_404(client, monkeypatch):
@@ -387,3 +398,43 @@ def test_editar_endpoint_responde_422_con_body_invalido(client, uow, body):
 
     assert response.status_code == 422
     assert uow.committed is False
+
+
+# --- POST /v1/endpoints/{id}/rotate-secret ---
+
+
+def test_rotar_secreto_devuelve_el_nuevo_y_hasta_cuando_vale_el_anterior(client, uow):
+    endpoint = uow.endpoints.items[0]
+    old_secret = endpoint.secret
+
+    response = client.post(f"/v1/endpoints/{endpoint.id}/rotate-secret", headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["secret"].startswith("whsec_")
+    assert body["secret"] != old_secret
+    assert body["secret"] == uow.endpoints.items[0].secret
+    assert body["previous_secret_expires_at"] == "2026-01-02T12:00:00Z"  # NOW + 24 h
+
+
+def test_rotar_secreto_con_expire_previous_lo_invalida_ya(client, uow):
+    endpoint = uow.endpoints.items[0]
+
+    response = client.post(
+        f"/v1/endpoints/{endpoint.id}/rotate-secret?expire_previous=true", headers=AUTH
+    )
+
+    assert response.status_code == 200
+    assert response.json()["previous_secret_expires_at"] is None
+    assert uow.endpoints.items[0].previous_secret is None
+
+
+def test_rotar_secreto_de_otra_aplicacion_responde_404(client, uow):
+    ajeno = make_endpoint(app_id=uuid4())
+    uow.endpoints.items.append(ajeno)
+    old_secret = ajeno.secret
+
+    response = client.post(f"/v1/endpoints/{ajeno.id}/rotate-secret", headers=AUTH)
+
+    assert response.status_code == 404
+    assert uow.endpoints.items[-1].secret == old_secret

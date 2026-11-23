@@ -91,6 +91,9 @@ class EndpointOut(BaseModel):
     event_types: list[str]
     enabled: bool
     created_at: datetime
+    # Hasta cuándo se sigue firmando también con el secreto anterior a la última
+    # rotación. null si nunca se rotó o si se rotó sin periodo de gracia.
+    previous_secret_expires_at: datetime | None
 
 
 class EndpointPatch(BaseModel):
@@ -113,3 +116,11 @@ class EndpointPatch(BaseModel):
         if nulls:
             raise ValueError(f"no pueden ser null: {', '.join(sorted(nulls))}")
         return self
+
+
+class SecretRotated(BaseModel):
+    """El secreto nuevo: igual que al crear el endpoint, solo se muestra esta vez."""
+
+    id: UUID
+    secret: str
+    previous_secret_expires_at: datetime | None

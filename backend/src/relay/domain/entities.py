@@ -31,6 +31,11 @@ class ApiKey:
     created_at: datetime
 
 
+# Tras rotar, el secreto anterior sigue firmando este tiempo: el cliente puede
+# actualizar su receptor sin que falle ningún webhook.
+SECRET_GRACE_PERIOD = timedelta(hours=24)
+
+
 @dataclass(slots=True)
 class Endpoint:
     """Una URL a la que una aplicación quiere que se entreguen sus eventos."""
@@ -42,10 +47,37 @@ class Endpoint:
     event_types: list[str]
     enabled: bool
     created_at: datetime
+    previous_secret: str | None = field(default=None, repr=False)
+    previous_secret_expires_at: datetime | None = None
 
     def accepts(self, event_type: str) -> bool:
         """Indica si este endpoint debe recibir un evento de ese tipo."""
         return self.enabled and event_type in self.event_types
+
+    def rotate_secret(self, new_secret: str, now: datetime, expire_previous: bool = False) -> None:
+        """Cambia el secreto. El actual pasa a ser el anterior durante el periodo de gracia.
+
+        Solo se guarda un secreto anterior: rotar dos veces descarta el más viejo.
+        Con expire_previous (el secreto se filtró) el actual deja de valer ya.
+        """
+        if expire_previous:
+            self.previous_secret = None
+            self.previous_secret_expires_at = None
+        else:
+            self.previous_secret = self.secret
+            self.previous_secret_expires_at = now + SECRET_GRACE_PERIOD
+        self.secret = new_secret
+
+    def signing_secrets(self, now: datetime) -> list[str]:
+        """Los secretos con los que hay que firmar ahora: el actual primero."""
+        secrets = [self.secret]
+        if (
+            self.previous_secret is not None
+            and self.previous_secret_expires_at is not None
+            and now < self.previous_secret_expires_at
+        ):
+            secrets.append(self.previous_secret)
+        return secrets
 
 
 @dataclass(slots=True)

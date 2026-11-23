@@ -68,12 +68,22 @@ class ApiKeyModel(Base):
 
 class EndpointModel(Base):
     __tablename__ = "endpoints"
+    __table_args__ = (
+        # El secreto anterior y su caducidad van siempre juntos.
+        CheckConstraint(
+            "(previous_secret_encrypted IS NULL) = (previous_secret_expires_at IS NULL)",
+            name="previous_secret_consistent",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     # Indexado porque cada evento recibido busca los endpoints de su aplicación.
     app_id: Mapped[UUID] = mapped_column(ForeignKey("applications.id"), index=True)
     url: Mapped[str] = mapped_column(Text)
     secret_encrypted: Mapped[str] = mapped_column(Text)
+    # El secreto anterior tras una rotación, que sigue firmando hasta que caduca.
+    previous_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    previous_secret_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     event_types: Mapped[list[str]] = mapped_column(ARRAY(Text))
     enabled: Mapped[bool] = mapped_column(server_default=true())
     created_at: Mapped[datetime] = mapped_column(

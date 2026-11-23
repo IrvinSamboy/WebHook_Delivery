@@ -262,3 +262,47 @@ def test_registra_el_intento_manual_como_manual():
     assert attempt.trigger is AttemptTrigger.MANUAL
     assert attempt.number == 11
     assert stored(uow).status is DeliveryStatus.FAILED
+
+
+# --- Firma durante una rotación de secreto ---
+
+
+def signature_header(uow, delivery, sender) -> str:
+    deliver(uow, delivery, sender)
+    return sender.requests[0].headers["webhook-signature"]
+
+
+def test_durante_la_gracia_el_receptor_valida_con_el_secreto_viejo_o_el_nuevo():
+    uow, endpoint, message, delivery = setup()
+    old_secret = endpoint.secret
+    endpoint.rotate_secret("whsec_bnVldm8=", NOW)
+    sender = FakeHttpSender(OK)
+
+    header = signature_header(uow, delivery, sender)
+
+    request = sender.requests[0]
+    assert len(header.split()) == 2
+    for secret in (old_secret, "whsec_bnVldm8="):
+        assert verify(
+            secret,
+            request.headers["webhook-id"],
+            request.headers["webhook-timestamp"],
+            header,
+            request.body,
+            now=int(NOW.timestamp()),
+        )
+
+
+def test_pasada_la_gracia_solo_vale_el_secreto_nuevo():
+    uow, endpoint, _, delivery = setup()
+    old_secret = endpoint.secret
+    endpoint.rotate_secret("whsec_bnVldm8=", NOW - timedelta(hours=25))
+    sender = FakeHttpSender(OK)
+
+    header = signature_header(uow, delivery, sender)
+
+    request = sender.requests[0]
+    assert len(header.split()) == 1
+    args = (request.headers["webhook-id"], request.headers["webhook-timestamp"], header, request.body)
+    assert verify("whsec_bnVldm8=", *args, now=int(NOW.timestamp()))
+    assert not verify(old_secret, *args, now=int(NOW.timestamp()))

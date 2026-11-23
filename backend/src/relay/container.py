@@ -10,6 +10,7 @@ from relay.application.use_cases.deliver_message import DeliverMessage
 from relay.application.use_cases.recover_stuck_deliveries import RecoverStuckDeliveries
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
 from relay.application.use_cases.retry_delivery import RetryDelivery
+from relay.application.use_cases.rotate_endpoint_secret import RotateEndpointSecret
 from relay.application.use_cases.schedule_due_deliveries import ScheduleDueDeliveries
 from relay.application.use_cases.update_endpoint import UpdateEndpoint
 from relay.config import get_settings
@@ -81,3 +82,7 @@ def retry_delivery() -> RetryDelivery:
 
 def update_endpoint() -> UpdateEndpoint:
     return UpdateEndpoint(_unit_of_work())
+
+
+def rotate_endpoint_secret() -> RotateEndpointSecret:
+    return RotateEndpointSecret(_unit_of_work(), SystemClock())
