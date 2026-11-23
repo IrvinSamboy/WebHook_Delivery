@@ -9,3 +9,11 @@ class DeliveryNotFound(Exception):
     def __init__(self, delivery_id: UUID) -> None:
         super().__init__(f"Entrega {delivery_id} no encontrada")
         self.delivery_id = delivery_id
+
+
+class EndpointNotFound(Exception):
+    """El endpoint no existe, o es de otra aplicación: para el cliente es lo mismo."""
+
+    def __init__(self, endpoint_id: UUID) -> None:
+        super().__init__(f"Endpoint {endpoint_id} no encontrado")
+        self.endpoint_id = endpoint_id

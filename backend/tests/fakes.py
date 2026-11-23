@@ -72,6 +72,14 @@ class FakeEndpointRepository:
     def get(self, endpoint_id: UUID) -> Endpoint:
         return next(e for e in self.items if e.id == endpoint_id)
 
+    # Copias, como en FakeDeliveryRepository: lo leído no cambia hasta update().
+    def get_for_update(self, endpoint_id: UUID) -> Endpoint | None:
+        found = [e for e in self.items if e.id == endpoint_id]
+        return replace(found[0], event_types=list(found[0].event_types)) if found else None
+
+    def update(self, endpoint: Endpoint) -> None:
+        self.items = [replace(endpoint) if e.id == endpoint.id else e for e in self.items]
+
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
         return [endpoint for endpoint in self.items if endpoint.app_id == app_id]
 

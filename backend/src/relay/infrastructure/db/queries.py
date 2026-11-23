@@ -10,7 +10,17 @@ from relay.infrastructure.db.models import (
     ApiKeyModel,
     AttemptModel,
     DeliveryModel,
+    EndpointModel,
     MessageModel,
+)
+
+# Las columnas que se pueden mostrar: nunca el secreto.
+_ENDPOINT_COLUMNS = (
+    EndpointModel.id,
+    EndpointModel.url,
+    EndpointModel.event_types,
+    EndpointModel.enabled,
+    EndpointModel.created_at,
 )
 
 
@@ -89,3 +99,25 @@ def list_attempts(session: Session, app_id: UUID, message_id: UUID) -> list[dict
         .order_by(AttemptModel.started_at, AttemptModel.number)
     ).mappings()
     return [dict(row) for row in rows]
+
+
+def list_endpoints(session: Session, app_id: UUID) -> list[dict[str, Any]]:
+    rows = session.execute(
+        select(*_ENDPOINT_COLUMNS)
+        .where(EndpointModel.app_id == app_id)
+        .order_by(EndpointModel.created_at, EndpointModel.id)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def get_endpoint(session: Session, app_id: UUID, endpoint_id: UUID) -> dict[str, Any] | None:
+    row = (
+        session.execute(
+            select(*_ENDPOINT_COLUMNS).where(
+                EndpointModel.id == endpoint_id, EndpointModel.app_id == app_id
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None

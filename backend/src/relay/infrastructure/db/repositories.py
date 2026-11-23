@@ -86,6 +86,20 @@ class SqlAlchemyEndpointRepository:
     def get(self, endpoint_id: UUID) -> Endpoint:
         return self._to_entity(self._session.get_one(EndpointModel, endpoint_id))
 
+    def get_for_update(self, endpoint_id: UUID) -> Endpoint | None:
+        model = self._session.scalars(
+            select(EndpointModel).where(EndpointModel.id == endpoint_id).with_for_update()
+        ).one_or_none()
+        return None if model is None else self._to_entity(model)
+
+    def update(self, endpoint: Endpoint) -> None:
+        # El secreto no se toca aquí: cambiarlo es rotarlo, y eso tiene sus reglas.
+        self._session.execute(
+            update(EndpointModel)
+            .where(EndpointModel.id == endpoint.id)
+            .values(url=endpoint.url, event_types=endpoint.event_types, enabled=endpoint.enabled)
+        )
+
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
         models = self._session.scalars(
             select(EndpointModel).where(EndpointModel.app_id == app_id)

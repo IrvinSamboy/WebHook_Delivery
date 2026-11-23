@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 # Solo caracteres habituales, con el mismo límite de longitud que la columna en Postgres.
 EventType = Annotated[
@@ -81,3 +81,35 @@ class EndpointCreated(BaseModel):
     enabled: bool
     secret: str
     created_at: datetime
+
+
+class EndpointOut(BaseModel):
+    """Un endpoint tal como se muestra al leerlo: sin el secreto."""
+
+    id: UUID
+    url: str
+    event_types: list[str]
+    enabled: bool
+    created_at: datetime
+
+
+class EndpointPatch(BaseModel):
+    """Cambios parciales: solo se modifica lo que aparece en el body."""
+
+    # Un campo desconocido (por ejemplo "secret") es un error, no se ignora:
+    # el cliente creería que lo cambió.
+    model_config = ConfigDict(extra="forbid")
+
+    url: HttpUrl | None = None
+    event_types: list[EventType] | None = Field(default=None, min_length=1)
+    enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def check_fields(self) -> "EndpointPatch":
+        if not self.model_fields_set:
+            raise ValueError("indica al menos un campo: url, event_types o enabled")
+        # Omitir un campo significa "no cambiarlo"; null no significa nada válido.
+        nulls = [name for name in self.model_fields_set if getattr(self, name) is None]
+        if nulls:
+            raise ValueError(f"no pueden ser null: {', '.join(sorted(nulls))}")
+        return self

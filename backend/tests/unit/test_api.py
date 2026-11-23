@@ -13,6 +13,7 @@ from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
 from relay.application.use_cases.retry_delivery import RetryDelivery
+from relay.application.use_cases.update_endpoint import UpdateEndpoint
 from relay.domain.api_keys import hash_api_key, prefix_of
 from relay.entrypoints.api import deps
 from relay.entrypoints.api.main import app
@@ -45,6 +46,7 @@ def client(uow):
         container.create_message: lambda: CreateMessage(uow, FakeClock(), FakeTaskQueue()),
         container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock()),
         container.retry_delivery: lambda: RetryDelivery(uow, FakeClock(), FakeTaskQueue()),
+        container.update_endpoint: lambda: UpdateEndpoint(uow),
     }
     yield TestClient(app)
     app.dependency_overrides = {}
@@ -68,6 +70,9 @@ def client(uow):
         pytest.param("POST", "/v1/messages", VALID_MESSAGE, id="crear-mensaje"),
         pytest.param("GET", f"/v1/messages/{uuid4()}", None, id="leer-mensaje"),
         pytest.param("POST", "/v1/endpoints", VALID_ENDPOINT, id="registrar-endpoint"),
+        pytest.param("GET", "/v1/endpoints", None, id="listar-endpoints"),
+        pytest.param("GET", f"/v1/endpoints/{uuid4()}", None, id="leer-endpoint"),
+        pytest.param("PATCH", f"/v1/endpoints/{uuid4()}", {"enabled": False}, id="editar-endpoint"),
         pytest.param("GET", f"/v1/messages/{uuid4()}/attempts", None, id="leer-intentos"),
         pytest.param("POST", f"/v1/deliveries/{uuid4()}/retry", None, id="reintentar"),
     ],
@@ -281,3 +286,104 @@ def test_leer_intentos_de_un_mensaje_ajeno_o_inexistente_responde_404(client, mo
     response = client.get(f"/v1/messages/{uuid4()}/attempts", headers=AUTH)
 
     assert response.status_code == 404
+
+
+# --- GET /v1/endpoints y GET /v1/endpoints/{id} ---
+
+
+def endpoint_row(endpoint_id=None):
+    return {
+        "id": endpoint_id or uuid4(),
+        "url": "https://example.com/webhook",
+        "event_types": ["order.paid"],
+        "enabled": True,
+        "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+    }
+
+
+def test_listar_endpoints_responde_200_y_filtra_por_aplicacion(client, monkeypatch):
+    calls = []
+
+    def fake_list_endpoints(_session, app_id):
+        calls.append(app_id)
+        return [endpoint_row(), endpoint_row()]
+
+    monkeypatch.setattr(queries, "list_endpoints", fake_list_endpoints)
+
+    response = client.get("/v1/endpoints", headers=AUTH)
+
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+    assert calls == [APP_ID]
+
+
+def test_leer_endpoint_nunca_muestra_el_secreto(client, monkeypatch):
+    endpoint_id = uuid4()
+    # Aunque la consulta devolviera el secreto por error, la respuesta no lo incluye.
+    monkeypatch.setattr(
+        queries, "get_endpoint", lambda *_: {**endpoint_row(endpoint_id), "secret": "whsec_x"}
+    )
+
+    response = client.get(f"/v1/endpoints/{endpoint_id}", headers=AUTH)
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"id", "url", "event_types", "enabled", "created_at"}
+
+
+def test_leer_endpoint_inexistente_responde_404(client, monkeypatch):
+    monkeypatch.setattr(queries, "get_endpoint", lambda *_: None)
+
+    response = client.get(f"/v1/endpoints/{uuid4()}", headers=AUTH)
+
+    assert response.status_code == 404
+
+
+# --- PATCH /v1/endpoints/{id} ---
+
+
+def test_editar_endpoint_responde_200_con_el_resultado(client, uow):
+    endpoint = uow.endpoints.items[0]
+
+    response = client.patch(
+        f"/v1/endpoints/{endpoint.id}",
+        json={"url": "https://nueva.com/hook", "enabled": False},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["url"] == "https://nueva.com/hook"
+    assert response.json()["enabled"] is False
+    assert "secret" not in response.json()
+    assert uow.endpoints.items[0].url == "https://nueva.com/hook"
+
+
+def test_editar_endpoint_de_otra_aplicacion_responde_404(client, uow):
+    ajeno = make_endpoint(app_id=uuid4())
+    uow.endpoints.items.append(ajeno)
+
+    response = client.patch(f"/v1/endpoints/{ajeno.id}", json={"enabled": False}, headers=AUTH)
+
+    assert response.status_code == 404
+    assert ajeno.enabled is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({}, id="vacio"),
+        pytest.param({"url": None}, id="url-null"),
+        pytest.param({"enabled": None}, id="enabled-null"),
+        pytest.param({"url": "no-es-url"}, id="url-invalida"),
+        pytest.param({"event_types": []}, id="sin-eventos"),
+        pytest.param({"event_types": ["con espacio"]}, id="evento-invalido"),
+        # Con un campo válido al lado: si no, fallaría solo por ir vacío.
+        pytest.param({"enabled": False, "secret": "whsec_x"}, id="campo-desconocido"),
+    ],
+)
+def test_editar_endpoint_responde_422_con_body_invalido(client, uow, body):
+    endpoint = uow.endpoints.items[0]
+
+    response = client.patch(f"/v1/endpoints/{endpoint.id}", json=body, headers=AUTH)
+
+    assert response.status_code == 422
+    assert uow.committed is False
