@@ -1,4 +1,4 @@
-.PHONY: up down logs worker-logs beat-logs receiver test psql migrate migration create-app
+.PHONY: up down logs worker-logs beat-logs receiver test test-integration psql migrate migration create-app
 
 .env:
 	cp .env.example .env
@@ -27,6 +27,10 @@ receiver:
 
 test: .env
 	docker compose run --rm api pytest
+
+# Contra PostgreSQL real, en una base aparte (<POSTGRES_DB>_test) que se crea y se borra.
+test-integration: .env
+	docker compose run --rm api pytest -m integration
 
 psql:
 	docker compose exec postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'

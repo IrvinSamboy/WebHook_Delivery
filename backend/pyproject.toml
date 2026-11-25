@@ -29,4 +29,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "tests"]
+pythonpath = ["src", "tests", "tests/integration"]
+# Los de integración necesitan Postgres: se ejecutan aparte con `make test-integration`.
+addopts = "-m 'not integration'"
+markers = ["integration: necesita PostgreSQL (make test-integration)"]
