@@ -11,13 +11,14 @@ que ya están en curso terminan sus reintentos.
 from uuid import UUID
 
 from relay.application.errors import EndpointNotFound
-from relay.application.ports import UnitOfWork
+from relay.application.ports import DestinationGuard, UnitOfWork
 from relay.domain.entities import Endpoint
 
 
 class UpdateEndpoint:
-    def __init__(self, uow: UnitOfWork) -> None:
+    def __init__(self, uow: UnitOfWork, guard: DestinationGuard) -> None:
         self._uow = uow
+        self._guard = guard
 
     def execute(
         self,
@@ -27,6 +28,9 @@ class UpdateEndpoint:
         event_types: list[str] | None = None,
         enabled: bool | None = None,
     ) -> Endpoint:
+        """Lanza EndpointNotFound, o DestinationNotAllowed si la URL nueva es interna."""
+        if url is not None:
+            self._guard.check(url)  # Antes de la transacción: el DNS puede tardar.
         with self._uow as uow:
             # FOR UPDATE: dos PATCH a la vez (uno cambia la URL, otro enabled)
             # se aplican uno tras otro; sin bloqueo, el segundo pisaría al primero.

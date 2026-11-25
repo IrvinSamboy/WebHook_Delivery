@@ -236,3 +236,18 @@ class FakeHttpSender:
         if self.on_send:
             self.on_send()
         return self.result
+
+
+class FakeDestinationGuard:
+    """Deja pasar todo salvo las URL de `blocked`, y guarda lo que comprobó."""
+
+    def __init__(self, blocked: set[str] | None = None) -> None:
+        self.blocked = blocked or set()
+        self.checked: list[str] = []
+
+    def check(self, url: str) -> None:
+        from relay.application.errors import DestinationNotAllowed
+
+        self.checked.append(url)
+        if url in self.blocked:
+            raise DestinationNotAllowed(url, "apunta a una dirección interna")

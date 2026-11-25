@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from fakes import FakeClock, FakeTaskQueue, FakeUnitOfWork, make_endpoint
+from fakes import FakeClock, FakeDestinationGuard, FakeTaskQueue, FakeUnitOfWork, make_endpoint
 from relay.domain.delivery_status import DeliveryStatus
 from relay.domain.entities import Delivery, Message
 from relay import container
@@ -25,6 +25,8 @@ APP_ID = uuid4()
 API_KEY = "whr_prueba.secreto-valido"
 AUTH = {"Authorization": f"Bearer {API_KEY}"}
 VALID_MESSAGE = {"event_type": "order.paid", "payload": {"order_id": "ord_981"}}
+INTERNAL_URL = "http://169.254.169.254/latest/meta-data/"
+BLOCKING_GUARD = FakeDestinationGuard(blocked={INTERNAL_URL})
 VALID_ENDPOINT = {"url": "https://example.com/webhook", "event_types": ["order.paid"]}
 
 
@@ -46,9 +48,9 @@ def client(uow):
         deps.get_api_key_finder: lambda: fake_find_api_key,
         deps.get_session: lambda: None,
         container.create_message: lambda: CreateMessage(uow, FakeClock(), FakeTaskQueue()),
-        container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock()),
+        container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock(), BLOCKING_GUARD),
         container.retry_delivery: lambda: RetryDelivery(uow, FakeClock(), FakeTaskQueue()),
-        container.update_endpoint: lambda: UpdateEndpoint(uow),
+        container.update_endpoint: lambda: UpdateEndpoint(uow, BLOCKING_GUARD),
         container.rotate_endpoint_secret: lambda: RotateEndpointSecret(uow, FakeClock()),
     }
     yield TestClient(app)
@@ -561,3 +563,27 @@ def test_estadisticas_de_un_endpoint_ajeno_responde_404(client, monkeypatch):
     response = client.get(f"/v1/endpoints/{uuid4()}/stats", headers=AUTH)
 
     assert response.status_code == 404
+
+
+# --- Protección contra SSRF ---
+
+
+def test_registrar_un_endpoint_interno_responde_422_sin_revelar_la_ip(client, uow):
+    before = len(uow.endpoints.items)
+
+    response = client.post(
+        "/v1/endpoints", json={"url": INTERNAL_URL, "event_types": ["order.paid"]}, headers=AUTH
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Destino no permitido: apunta a una dirección interna"
+    assert len(uow.endpoints.items) == before
+
+
+def test_cambiar_la_url_a_una_interna_responde_422(client, uow):
+    endpoint = uow.endpoints.items[0]
+
+    response = client.patch(f"/v1/endpoints/{endpoint.id}", json={"url": INTERNAL_URL}, headers=AUTH)
+
+    assert response.status_code == 422
+    assert uow.endpoints.items[0].url == endpoint.url

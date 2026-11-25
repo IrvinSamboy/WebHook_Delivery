@@ -64,3 +64,10 @@ def test_falla_si_el_backoff_no_es_un_numero_positivo(monkeypatch, value):
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_por_defecto_no_se_permite_enviar_a_direcciones_internas(monkeypatch):
+    monkeypatch.delenv("ALLOW_PRIVATE_URLS", raising=False)
+
+    # Quien despliega sin configurarlo queda protegido contra SSRF.
+    assert Settings().allow_private_urls is False

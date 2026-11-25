@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from relay import container
-from relay.application.errors import EndpointNotFound
+from relay.application.errors import DestinationNotAllowed, EndpointNotFound
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
 from relay.application.use_cases.rotate_endpoint_secret import RotateEndpointSecret
 from relay.application.use_cases.update_endpoint import UpdateEndpoint
@@ -24,13 +24,23 @@ router = APIRouter(prefix="/v1/endpoints", tags=["endpoints"])
 _NOT_FOUND = "Endpoint no encontrado"
 
 
+def _destination_not_allowed(error: DestinationNotAllowed) -> HTTPException:
+    # No se dice a qué IP resolvió: no ayudamos a mapear nuestra red.
+    return HTTPException(
+        status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"Destino no permitido: {error.reason}"
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def register_endpoint(
     body: EndpointIn,
     app_id: CurrentAppId,
     use_case: Annotated[RegisterEndpoint, Depends(container.register_endpoint)],
 ) -> EndpointCreated:
-    endpoint = use_case.execute(app_id, str(body.url), body.event_types)
+    try:
+        endpoint = use_case.execute(app_id, str(body.url), body.event_types)
+    except DestinationNotAllowed as error:
+        raise _destination_not_allowed(error) from None
     return EndpointCreated(
         id=endpoint.id,
         url=endpoint.url,
@@ -82,6 +92,8 @@ def update_endpoint(
         )
     except EndpointNotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND) from None
+    except DestinationNotAllowed as error:
+        raise _destination_not_allowed(error) from None
     return EndpointOut(
         id=endpoint.id,
         url=endpoint.url,

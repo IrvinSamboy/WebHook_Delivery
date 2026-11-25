@@ -5,7 +5,7 @@ Solo la red (FakeHttpSender) y la cola (FakeTaskQueue) son falsas.
 
 from datetime import timedelta
 
-from fakes import NOW, FakeClock, FakeHttpSender, FakeTaskQueue
+from fakes import NOW, FakeClock, FakeDestinationGuard, FakeHttpSender, FakeTaskQueue
 from relay.application.ports import HttpResult
 from relay.application.use_cases.create_application import CreateApplication
 from relay.application.use_cases.create_message import CreateMessage
@@ -22,7 +22,7 @@ OK = HttpResult(status=204, body="", error=None, duration_ms=10)
 
 def test_falla_se_reprograma_y_el_scheduler_la_vuelve_a_enviar(uow, session):
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
-    RegisterEndpoint(uow, FakeClock()).execute(app.id, "https://example.com/hook", ["order.paid"])
+    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
     queue = FakeTaskQueue()
     message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {"n": 1})
     [delivery_id] = queue.enqueued

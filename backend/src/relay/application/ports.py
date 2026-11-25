@@ -50,6 +50,14 @@ class HttpSender(Protocol):
     def send(self, url: str, headers: dict[str, str], body: bytes) -> HttpResult: ...
 
 
+class DestinationGuard(Protocol):
+    """Decide si se puede enviar a una URL (protección contra SSRF)."""
+
+    def check(self, url: str) -> None:
+        """Lanza DestinationNotAllowed si la URL apunta a una dirección interna."""
+        ...
+
+
 class TaskQueue(Protocol):
     """Avisa a los workers de que hay trabajo. Solo transporta ids y el trigger."""
 

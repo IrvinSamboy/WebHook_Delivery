@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import httpx2
 import pytest
 
+from fakes import FakeDestinationGuard
 from relay.domain.entities import RESPONSE_BODY_LIMIT
 from relay.infrastructure.http_sender import USER_AGENT, Httpx2Sender, parse_retry_after
 
@@ -12,7 +13,7 @@ BODY = b'{"type":"order.paid"}'
 
 def sender_with(handler) -> Httpx2Sender:
     """Un sender real cuyo "servidor" es la función `handler`, sin red."""
-    return Httpx2Sender(transport=httpx2.MockTransport(handler))
+    return Httpx2Sender(FakeDestinationGuard(), transport=httpx2.MockTransport(handler))
 
 
 def test_envia_el_body_y_los_headers_tal_cual():
@@ -113,3 +114,28 @@ NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 )
 def test_interpreta_el_header_retry_after(value, expected):
     assert parse_retry_after(value, now=NOW) == expected
+
+
+def test_no_conecta_si_el_destino_no_esta_permitido():
+    requests = []
+    sender = Httpx2Sender(
+        FakeDestinationGuard(blocked={URL}),
+        transport=httpx2.MockTransport(lambda request: requests.append(request)),
+    )
+
+    result = sender.send(URL, {}, BODY)
+
+    assert result.error == "destination_not_allowed"
+    assert result.status is None
+    assert requests == []  # Ni una petición: la comprobación va antes de conectar.
+
+
+def test_comprueba_el_destino_en_cada_envio():
+    # Por el DNS rebinding: la IP puede cambiar entre un envío y el siguiente.
+    guard = FakeDestinationGuard()
+    sender = Httpx2Sender(guard, transport=httpx2.MockTransport(lambda r: httpx2.Response(204)))
+
+    sender.send(URL, {}, BODY)
+    sender.send(URL, {}, BODY)
+
+    assert guard.checked == [URL, URL]

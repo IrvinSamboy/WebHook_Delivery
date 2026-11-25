@@ -17,6 +17,7 @@ from relay.config import get_settings
 from relay.domain.retry_policy import RetryPolicy
 from relay.infrastructure.clock import SystemClock
 from relay.infrastructure.crypto import SecretCipher
+from relay.infrastructure.destination_guard import DnsDestinationGuard
 from relay.infrastructure.db.session import build_session_factory
 from relay.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from relay.infrastructure.http_sender import Httpx2Sender
@@ -34,10 +35,14 @@ def secret_cipher() -> SecretCipher:
     return SecretCipher(get_settings().encryption_key.get_secret_value())
 
 
+def destination_guard() -> DnsDestinationGuard:
+    return DnsDestinationGuard(allow_private=get_settings().allow_private_urls)
+
+
 @lru_cache
 def http_sender() -> Httpx2Sender:
     # Uno por proceso: reutiliza las conexiones abiertas con los receptores.
-    return Httpx2Sender()
+    return Httpx2Sender(destination_guard())
 
 
 def task_queue() -> CeleryTaskQueue:
@@ -53,7 +58,7 @@ def create_application() -> CreateApplication:
 
 
 def register_endpoint() -> RegisterEndpoint:
-    return RegisterEndpoint(_unit_of_work(), SystemClock())
+    return RegisterEndpoint(_unit_of_work(), SystemClock(), destination_guard())
 
 
 def create_message() -> CreateMessage:
@@ -81,7 +86,7 @@ def retry_delivery() -> RetryDelivery:
 
 
 def update_endpoint() -> UpdateEndpoint:
-    return UpdateEndpoint(_unit_of_work())
+    return UpdateEndpoint(_unit_of_work(), destination_guard())
 
 
 def rotate_endpoint_secret() -> RotateEndpointSecret:

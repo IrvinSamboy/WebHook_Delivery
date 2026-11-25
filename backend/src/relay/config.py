@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     encryption_key: SecretStr
     # Espera tras el primer fallo; se duplica en cada reintento.
     backoff_base_seconds: float = Field(default=30, gt=0)
+    # Permite enviar a direcciones internas. Solo para desarrollo (el receptor
+    # de prueba es http://receiver:9000): por defecto, protegido contra SSRF.
+    allow_private_urls: bool = False
 
     @field_validator("encryption_key")
     @classmethod

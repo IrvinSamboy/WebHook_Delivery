@@ -6,7 +6,8 @@ from email.utils import parsedate_to_datetime
 
 import httpx2
 
-from relay.application.ports import HttpResult
+from relay.application.errors import DestinationNotAllowed
+from relay.application.ports import DestinationGuard, HttpResult
 from relay.domain.entities import RESPONSE_BODY_LIMIT
 
 USER_AGENT = "webhook-relay/0.1"
@@ -16,7 +17,11 @@ TIMEOUT = httpx2.Timeout(15.0, connect=5.0)
 
 
 class Httpx2Sender:
-    def __init__(self, transport: httpx2.BaseTransport | None = None) -> None:
+    def __init__(
+        self, guard: DestinationGuard, transport: httpx2.BaseTransport | None = None
+    ) -> None:
+        # Obligatorio: un sender sin guardián enviaría a direcciones internas.
+        self._guard = guard
         # `transport` solo se indica en los tests, para simular el servidor.
         self._client = httpx2.Client(
             timeout=TIMEOUT,
@@ -31,6 +36,14 @@ class Httpx2Sender:
 
     def send(self, url: str, headers: dict[str, str], body: bytes) -> HttpResult:
         started = time.perf_counter()
+        # Se vuelve a comprobar en cada envío: el DNS pudo cambiar desde que se
+        # registró el endpoint (DNS rebinding).
+        try:
+            self._guard.check(url)
+        except DestinationNotAllowed:
+            return HttpResult(
+                status=None, body=None, error="destination_not_allowed", duration_ms=0
+            )
         try:
             with self._client.stream("POST", url, content=body, headers=headers) as response:
                 content = _read_at_most(response, RESPONSE_BODY_LIMIT)
