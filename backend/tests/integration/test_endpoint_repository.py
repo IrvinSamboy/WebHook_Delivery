@@ -4,10 +4,10 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from factories import NOW, add_app, add_endpoint
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from factories import NOW, add_app, add_endpoint
 from relay.domain.entities import Endpoint
 from relay.infrastructure.db.repositories import SqlAlchemyEndpointRepository
 
@@ -84,4 +84,6 @@ def test_el_secreto_anterior_y_su_caducidad_van_juntos(session):
     app_id = add_app(session)
 
     with pytest.raises(IntegrityError, match="previous_secret_consistent"):
-        add_endpoint(session, app_id, previous_secret_encrypted="x", previous_secret_expires_at=None)
+        add_endpoint(
+            session, app_id, previous_secret_encrypted="x", previous_secret_expires_at=None
+        )

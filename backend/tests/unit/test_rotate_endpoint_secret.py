@@ -70,7 +70,9 @@ def test_un_endpoint_ajeno_o_inexistente_no_se_encuentra(de_otra_app):
     old_secret = endpoint.secret
 
     with pytest.raises(EndpointNotFound):
-        rotate(uow, endpoint.id if de_otra_app else uuid4(), app_id=uuid4() if de_otra_app else APP_ID)
+        rotate(
+            uow, endpoint.id if de_otra_app else uuid4(), app_id=uuid4() if de_otra_app else APP_ID
+        )
 
     assert uow.endpoints.items[0].secret == old_secret
     assert uow.commits == 0

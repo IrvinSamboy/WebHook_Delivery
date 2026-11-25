@@ -3,9 +3,9 @@
 from datetime import timedelta
 from uuid import uuid4
 
+from factories import NOW, add_app, add_delivery, add_endpoint, add_message
 from sqlalchemy import text
 
-from factories import NOW, add_app, add_delivery, add_endpoint, add_message
 from relay.infrastructure.db import queries
 from relay.infrastructure.db.models import AttemptModel
 

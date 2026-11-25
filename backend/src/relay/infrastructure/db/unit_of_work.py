@@ -2,6 +2,14 @@ from typing import Self
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from relay.application.ports import (
+    ApiKeyRepository,
+    ApplicationRepository,
+    AttemptRepository,
+    DeliveryRepository,
+    EndpointRepository,
+    MessageRepository,
+)
 from relay.infrastructure.crypto import SecretCipher
 from relay.infrastructure.db.repositories import (
     SqlAlchemyApiKeyRepository,
@@ -14,6 +22,15 @@ from relay.infrastructure.db.repositories import (
 
 
 class SqlAlchemyUnitOfWork:
+    # Declarados con el tipo del puerto: mypy comprueba al asignar en __enter__
+    # que cada repositorio cumple su Protocol.
+    applications: ApplicationRepository
+    api_keys: ApiKeyRepository
+    endpoints: EndpointRepository
+    messages: MessageRepository
+    deliveries: DeliveryRepository
+    attempts: AttemptRepository
+
     def __init__(self, session_factory: sessionmaker[Session], cipher: SecretCipher) -> None:
         self._session_factory = session_factory
         self._cipher = cipher

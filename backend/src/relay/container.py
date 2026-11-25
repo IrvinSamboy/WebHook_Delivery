@@ -3,7 +3,6 @@
 from functools import lru_cache
 
 import redis
-
 from sqlalchemy.orm import Session, sessionmaker
 
 from relay.application.use_cases.create_application import CreateApplication
@@ -19,9 +18,9 @@ from relay.config import get_settings
 from relay.domain.retry_policy import RetryPolicy
 from relay.infrastructure.clock import SystemClock
 from relay.infrastructure.crypto import SecretCipher
-from relay.infrastructure.destination_guard import DnsDestinationGuard
 from relay.infrastructure.db.session import build_session_factory
 from relay.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from relay.infrastructure.destination_guard import DnsDestinationGuard
 from relay.infrastructure.http_sender import Httpx2Sender
 from relay.infrastructure.queue.celery_app import app as celery_app
 from relay.infrastructure.queue.task_queue import CeleryTaskQueue

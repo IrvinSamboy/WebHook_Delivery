@@ -58,9 +58,7 @@ def test_confirma_antes_de_encolar():
     assert commits_al_encolar == [1]
 
 
-@pytest.mark.parametrize(
-    "status", [s for s in DeliveryStatus if s is not DeliveryStatus.FAILED]
-)
+@pytest.mark.parametrize("status", [s for s in DeliveryStatus if s is not DeliveryStatus.FAILED])
 def test_rechaza_las_entregas_que_no_han_fallado(status):
     uow, delivery = setup(status)
     queue = FakeTaskQueue()

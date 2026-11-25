@@ -48,9 +48,7 @@ class ApplicationModel(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ApiKeyModel(Base):
@@ -61,9 +59,7 @@ class ApiKeyModel(Base):
     # La parte visible de la key: permite encontrarla sin guardarla en claro.
     prefix: Mapped[str] = mapped_column(String(20), unique=True)
     key_hash: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class EndpointModel(Base):
@@ -86,9 +82,7 @@ class EndpointModel(Base):
     previous_secret_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     event_types: Mapped[list[str]] = mapped_column(ARRAY(Text))
     enabled: Mapped[bool] = mapped_column(server_default=true())
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class MessageModel(Base):
@@ -120,9 +114,7 @@ class MessageModel(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(255))
     # SHA-256 en hexadecimal del tipo de evento y el payload.
     request_hash: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class DeliveryModel(Base):
@@ -157,14 +149,10 @@ class DeliveryModel(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     # El fencing token del worker que la está enviando (null si nadie la tiene).
     lease_id: Mapped[UUID | None] = mapped_column(Uuid)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Cuándo cambió de estado por última vez: el reaper lo usa para saber
     # cuánto tiempo lleva atascada una entrega.
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AttemptModel(Base):

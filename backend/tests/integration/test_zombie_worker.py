@@ -10,9 +10,9 @@ worker ya tiene el sobre. Reproduce la secuencia completa con Postgres real.
 import threading
 from datetime import UTC, datetime, timedelta
 
+from factories import age
 from sqlalchemy import text
 
-from factories import age
 from fakes import FakeClock, FakeDestinationGuard, FakeHttpSender, FakeTaskQueue
 from relay.application.ports import HttpResult
 from relay.application.use_cases.create_application import CreateApplication
@@ -32,7 +32,9 @@ OK = HttpResult(status=204, body="", error=None, duration_ms=10)
 
 def test_un_worker_congelado_no_pisa_el_trabajo_del_que_tomo_el_sobre(uow, session):
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
-    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
+    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(
+        app.id, "https://example.com/hook", ["order.paid"]
+    )
     queue = FakeTaskQueue()
     message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {}).message
     [delivery_id] = queue.enqueued
@@ -81,7 +83,9 @@ def test_un_worker_congelado_no_pisa_al_que_aun_esta_enviando(
     Worker 2 va en otro hilo; dos eventos fuerzan exactamente ese orden.
     """
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
-    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
+    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(
+        app.id, "https://example.com/hook", ["order.paid"]
+    )
     queue = FakeTaskQueue()
     message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {}).message
     [delivery_id] = queue.enqueued
@@ -138,7 +142,9 @@ def test_un_worker_congelado_no_pisa_al_que_aun_esta_enviando(
 
 def test_el_reaper_borra_el_lease_al_rescatar(uow, session):
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
-    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
+    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(
+        app.id, "https://example.com/hook", ["order.paid"]
+    )
     queue = FakeTaskQueue()
     CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {})
     [delivery_id] = queue.enqueued

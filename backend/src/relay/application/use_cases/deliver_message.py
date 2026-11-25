@@ -41,9 +41,7 @@ class DeliverMessage:
         self._clock = clock
         self._policy = policy
 
-    def execute(
-        self, delivery_id: UUID, trigger: AttemptTrigger = AttemptTrigger.AUTO
-    ) -> None:
+    def execute(self, delivery_id: UUID, trigger: AttemptTrigger = AttemptTrigger.AUTO) -> None:
         # Transacción 1: reservar el sobre.
         with self._uow as uow:
             delivery = uow.deliveries.get_for_update(delivery_id)
@@ -74,9 +72,7 @@ class DeliverMessage:
             sign(secret, str(message.id), timestamp, body)
             for secret in endpoint.signing_secrets(started_at)
         )
-        result = self._sender.send(
-            endpoint.url, {**headers, "webhook-signature": signature}, body
-        )
+        result = self._sender.send(endpoint.url, {**headers, "webhook-signature": signature}, body)
 
         # Transacción 2: registrar lo que pasó y decidir qué sigue.
         with self._uow as uow:

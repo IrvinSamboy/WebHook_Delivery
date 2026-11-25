@@ -5,10 +5,10 @@ import time
 from uuid import uuid4
 
 import pytest
+from factories import NOW, add_app, add_message
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from factories import NOW, add_app, add_message
 from fakes import FakeClock, FakeTaskQueue
 from relay.application.errors import DuplicateIdempotencyKey
 from relay.application.use_cases.create_message import CreateMessage, request_hash
@@ -67,10 +67,10 @@ def test_la_key_y_el_hash_van_juntos(session):
 def test_dos_reintentos_a_la_vez_crean_un_solo_mensaje(session, session_factory, cipher):
     """La carrera de verdad, con dos transacciones:
 
-        A: INSERT con la key (sin commit todavía)
-        B: busca la key → no la ve (A no ha confirmado) → INSERT → se queda
-           ESPERANDO en el índice único, porque A podría confirmar o deshacer
-        A: COMMIT → el INSERT de B falla → B relee y devuelve el mensaje de A
+    A: INSERT con la key (sin commit todavía)
+    B: busca la key → no la ve (A no ha confirmado) → INSERT → se queda
+       ESPERANDO en el índice único, porque A podría confirmar o deshacer
+    A: COMMIT → el INSERT de B falla → B relee y devuelve el mensaje de A
     """
     app_id = add_app(session)
     session.commit()

@@ -22,7 +22,9 @@ OK = HttpResult(status=204, body="", error=None, duration_ms=10)
 
 def test_falla_se_reprograma_y_el_scheduler_la_vuelve_a_enviar(uow, session):
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
-    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
+    RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(
+        app.id, "https://example.com/hook", ["order.paid"]
+    )
     queue = FakeTaskQueue()
     message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {"n": 1}).message
     [delivery_id] = queue.enqueued

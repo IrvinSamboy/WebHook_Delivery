@@ -3,9 +3,9 @@
 from datetime import timedelta
 
 import pytest
+from factories import NOW, add_app, add_delivery, add_endpoint, age, status_of
 from sqlalchemy import event, text
 
-from factories import NOW, add_app, add_delivery, add_endpoint, age, status_of
 from relay.infrastructure.db.repositories import SqlAlchemyDeliveryRepository
 
 

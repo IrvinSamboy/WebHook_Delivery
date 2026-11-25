@@ -14,8 +14,6 @@ from fakes import (
     FakeUnitOfWork,
     make_endpoint,
 )
-from relay.domain.delivery_status import DeliveryStatus
-from relay.domain.entities import Delivery, Message
 from relay import container
 from relay.application.use_cases.create_message import CreateMessage
 from relay.application.use_cases.register_endpoint import RegisterEndpoint
@@ -23,6 +21,8 @@ from relay.application.use_cases.retry_delivery import RetryDelivery
 from relay.application.use_cases.rotate_endpoint_secret import RotateEndpointSecret
 from relay.application.use_cases.update_endpoint import UpdateEndpoint
 from relay.domain.api_keys import hash_api_key, prefix_of
+from relay.domain.delivery_status import DeliveryStatus
+from relay.domain.entities import Delivery, Message
 from relay.entrypoints.api import deps
 from relay.entrypoints.api.main import app
 from relay.entrypoints.api.pagination import decode_cursor, encode_cursor
@@ -257,7 +257,9 @@ def test_leer_mensaje_con_id_invalido_responde_422(client):
 
 def add_delivery(uow, status, app_id=APP_ID) -> Delivery:
     now = datetime(2026, 1, 1, tzinfo=UTC)
-    message = Message(id=uuid4(), app_id=app_id, event_type="order.paid", payload={}, created_at=now)
+    message = Message(
+        id=uuid4(), app_id=app_id, event_type="order.paid", payload={}, created_at=now
+    )
     delivery = Delivery(
         id=uuid4(),
         message_id=message.id,
@@ -293,7 +295,9 @@ def test_reintentar_una_entrega_que_no_fallo_responde_409(client, uow):
 
 @pytest.mark.parametrize("de_otra_app", [False, True], ids=["inexistente", "de-otra-aplicacion"])
 def test_reintentar_una_entrega_ajena_o_inexistente_responde_404(client, uow, de_otra_app):
-    delivery_id = add_delivery(uow, DeliveryStatus.FAILED, app_id=uuid4()).id if de_otra_app else uuid4()
+    delivery_id = (
+        add_delivery(uow, DeliveryStatus.FAILED, app_id=uuid4()).id if de_otra_app else uuid4()
+    )
 
     response = client.post(f"/v1/deliveries/{delivery_id}/retry", headers=AUTH)
 
@@ -539,7 +543,9 @@ def test_listar_mensajes_usa_valores_por_defecto(client, list_messages):
 
     assert response.status_code == 200
     assert response.json() == {"data": [], "next_cursor": None}
-    assert list_messages.calls == [{"app_id": APP_ID, "limit": 50, "before": None, "event_type": None}]
+    assert list_messages.calls == [
+        {"app_id": APP_ID, "limit": 50, "before": None, "event_type": None}
+    ]
 
 
 def test_si_quedan_mas_el_cursor_apunta_al_ultimo_de_la_pagina(client, list_messages):
@@ -639,7 +645,9 @@ def test_registrar_un_endpoint_interno_responde_422_sin_revelar_la_ip(client, uo
 def test_cambiar_la_url_a_una_interna_responde_422(client, uow):
     endpoint = uow.endpoints.items[0]
 
-    response = client.patch(f"/v1/endpoints/{endpoint.id}", json={"url": INTERNAL_URL}, headers=AUTH)
+    response = client.patch(
+        f"/v1/endpoints/{endpoint.id}", json={"url": INTERNAL_URL}, headers=AUTH
+    )
 
     assert response.status_code == 422
     assert uow.endpoints.items[0].url == endpoint.url

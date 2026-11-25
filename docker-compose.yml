@@ -28,7 +28,7 @@ services:
     command: uvicorn relay.entrypoints.api.main:app --host 0.0.0.0 --port 8000 --reload --app-dir src
     env_file: .env
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
     depends_on:
@@ -72,6 +72,7 @@ services:
     environment:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
       RECEIVER_STATUS: ${RECEIVER_STATUS:-}
+      RECEIVER_DELAY: ${RECEIVER_DELAY:-}
     volumes:
       - ./backend:/app
 

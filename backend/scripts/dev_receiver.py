@@ -2,9 +2,12 @@
 
     make receiver secret=whsec_...
     make receiver secret=whsec_... status=500   # simula un receptor caído
+    make receiver secret=whsec_... delay=2      # simula un receptor lento
 
 Responde 204 si la firma es válida y 401 si no lo es. Con RECEIVER_STATUS
 responde siempre ese código: sirve para ver los reintentos en acción.
+Con RECEIVER_DELAY espera esos segundos antes de responder. RECEIVER_QUIET=1
+no imprime cada webhook (para las pruebas de carga).
 """
 
 import os
@@ -15,6 +18,8 @@ from relay.domain.signing import verify
 
 SECRET = os.environ.get("WEBHOOK_SECRET", "")
 FORCED_STATUS = int(os.environ.get("RECEIVER_STATUS") or 0)
+DELAY_SECONDS = float(os.environ.get("RECEIVER_DELAY") or 0)
+QUIET = os.environ.get("RECEIVER_QUIET") == "1"
 PORT = 9000
 
 
@@ -34,6 +39,12 @@ class Receiver(BaseHTTPRequestHandler):
         except ValueError:  # Secreto mal copiado: no es base64 válido.
             valid = False
         status = FORCED_STATUS or (204 if valid else 401)
+        if DELAY_SECONDS:
+            time.sleep(DELAY_SECONDS)
+        self.send_response(status)
+        self.end_headers()
+        if QUIET:
+            return
         signatures = len(self.headers.get("webhook-signature", "").split())
         mark = "✅ firma válida  " if valid else "❌ firma inválida"
         print(
@@ -41,8 +52,6 @@ class Receiver(BaseHTTPRequestHandler):
             f"webhook-id={webhook_id} {body.decode(errors='replace')}",
             flush=True,
         )
-        self.send_response(status)
-        self.end_headers()
 
     def log_message(self, *args: object) -> None:
         pass  # Sin la línea de log por defecto: ya imprimimos lo importante.
@@ -53,5 +62,7 @@ if __name__ == "__main__":
         print("Aviso: falta WEBHOOK_SECRET; todas las firmas serán inválidas.", flush=True)
     if FORCED_STATUS:
         print(f"Responderá siempre {FORCED_STATUS}.", flush=True)
+    if DELAY_SECONDS:
+        print(f"Tardará {DELAY_SECONDS:g} s en responder.", flush=True)
     print(f"Receptor escuchando en :{PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Receiver).serve_forever()

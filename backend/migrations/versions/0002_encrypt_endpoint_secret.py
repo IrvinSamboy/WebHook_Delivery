@@ -9,9 +9,9 @@ Revises: 0001
 
 from collections.abc import Callable
 
+import sqlalchemy as sa
 from alembic import op
 from cryptography.fernet import Fernet
-import sqlalchemy as sa
 
 from relay.config import get_settings
 

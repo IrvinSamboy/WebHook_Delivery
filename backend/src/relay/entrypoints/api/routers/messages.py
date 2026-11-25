@@ -30,9 +30,7 @@ IdempotencyKey = Annotated[
 
 
 # Solo crear mensajes tiene límite: es lo que genera trabajo (filas, tareas, envíos).
-@router.post(
-    "", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(enforce_rate_limit)]
-)
+@router.post("", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(enforce_rate_limit)])
 def create_message(
     body: MessageIn,
     app_id: CurrentAppId,

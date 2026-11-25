@@ -21,7 +21,9 @@ def stored(uow: FakeUnitOfWork):
 @pytest.mark.parametrize(
     ("changes", "expected"),
     [
-        pytest.param({"url": "https://nueva.com/hook"}, {"url": "https://nueva.com/hook"}, id="url"),
+        pytest.param(
+            {"url": "https://nueva.com/hook"}, {"url": "https://nueva.com/hook"}, id="url"
+        ),
         pytest.param(
             {"event_types": ["user.created"]}, {"event_types": ["user.created"]}, id="eventos"
         ),
@@ -57,7 +59,9 @@ def test_puede_cambiar_varios_campos_a_la_vez():
 def test_no_toca_el_secreto_ni_la_fecha_de_creacion():
     uow, endpoint = setup()
 
-    UpdateEndpoint(uow, FakeDestinationGuard()).execute(APP_ID, endpoint.id, url="https://nueva.com/hook")
+    UpdateEndpoint(uow, FakeDestinationGuard()).execute(
+        APP_ID, endpoint.id, url="https://nueva.com/hook"
+    )
 
     assert stored(uow).secret == endpoint.secret
     assert stored(uow).created_at == endpoint.created_at

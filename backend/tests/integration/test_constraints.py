@@ -4,9 +4,9 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from factories import NOW, add_app, add_delivery, add_endpoint, add_message
 from sqlalchemy.exc import IntegrityError
 
-from factories import NOW, add_app, add_delivery, add_endpoint, add_message
 from relay.infrastructure.db.models import AttemptModel, DeliveryModel
 
 

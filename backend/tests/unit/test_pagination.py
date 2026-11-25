@@ -41,7 +41,9 @@ def test_es_seguro_en_una_url():
         pytest.param(b64('{"c": "2026-01-01T12:00:00+00:00"}'), id="sin-id"),
         pytest.param(b64('{"c": "ayer", "i": "' + str(uuid4()) + '"}'), id="fecha-invalida"),
         pytest.param(b64('{"c": "2026-01-01T12:00:00+00:00", "i": "x"}'), id="id-invalido"),
-        pytest.param(b64('{"c": "2026-01-01T12:00:00", "i": "' + str(uuid4()) + '"}'), id="sin-zona"),
+        pytest.param(
+            b64('{"c": "2026-01-01T12:00:00", "i": "' + str(uuid4()) + '"}'), id="sin-zona"
+        ),
         pytest.param(base64.urlsafe_b64encode(b"\xff\xfe").decode(), id="bytes-no-utf8"),
     ],
 )

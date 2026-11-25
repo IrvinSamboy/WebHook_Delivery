@@ -179,7 +179,9 @@ def test_un_lease_vacio_nunca_es_vigente():
     delivery = make_delivery()
     delivery.lease_id = None
 
-    assert delivery.record_attempt(lease_id=LEASE, succeeded=True, now=LATER, policy=POLICY) is False
+    assert (
+        delivery.record_attempt(lease_id=LEASE, succeeded=True, now=LATER, policy=POLICY) is False
+    )
 
 
 # --- La tabla de transiciones ---
@@ -206,9 +208,7 @@ def test_un_sobre_fallido_se_puede_reintentar_a_mano():
     assert delivery.attempt_count == 10  # No se reinicia: es un intento extra.
 
 
-@pytest.mark.parametrize(
-    "status", [s for s in DeliveryStatus if s is not DeliveryStatus.FAILED]
-)
+@pytest.mark.parametrize("status", [s for s in DeliveryStatus if s is not DeliveryStatus.FAILED])
 def test_solo_se_reintenta_a_mano_lo_que_fallo(status):
     delivery = make_delivery(status)
 

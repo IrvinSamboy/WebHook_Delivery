@@ -1,9 +1,8 @@
 """Las migraciones se aplican y se deshacen, y coinciden con los modelos."""
 
 from alembic import command
-from sqlalchemy import inspect
-
 from conftest import alembic_config
+from sqlalchemy import inspect
 
 
 def test_las_migraciones_coinciden_con_los_modelos(test_database_url):

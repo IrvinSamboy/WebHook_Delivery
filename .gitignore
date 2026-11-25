@@ -9,8 +9,11 @@ __pycache__/
 
 # Herramientas
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
+backend/loadtests/results/
 
 # Editores y sistema
 .vscode/

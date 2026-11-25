@@ -116,9 +116,7 @@ class SqlAlchemyEndpointRepository:
         )
 
     def list_by_app(self, app_id: UUID) -> list[Endpoint]:
-        models = self._session.scalars(
-            select(EndpointModel).where(EndpointModel.app_id == app_id)
-        )
+        models = self._session.scalars(select(EndpointModel).where(EndpointModel.app_id == app_id))
         return [self._to_entity(model) for model in models]
 
     def _to_entity(self, model: EndpointModel) -> Endpoint:

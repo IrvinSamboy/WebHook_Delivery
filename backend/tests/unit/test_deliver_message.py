@@ -303,7 +303,12 @@ def test_pasada_la_gracia_solo_vale_el_secreto_nuevo():
 
     request = sender.requests[0]
     assert len(header.split()) == 1
-    args = (request.headers["webhook-id"], request.headers["webhook-timestamp"], header, request.body)
+    args = (
+        request.headers["webhook-id"],
+        request.headers["webhook-timestamp"],
+        header,
+        request.body,
+    )
     assert verify("whsec_bnVldm8=", *args, now=int(NOW.timestamp()))
     assert not verify(old_secret, *args, now=int(NOW.timestamp()))
 

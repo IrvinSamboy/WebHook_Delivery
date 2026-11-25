@@ -56,9 +56,7 @@ def test_no_encola_las_que_aun_esperan_su_turno():
     assert futura.status is DeliveryStatus.PENDING
 
 
-@pytest.mark.parametrize(
-    "status", [s for s in DeliveryStatus if s is not DeliveryStatus.PENDING]
-)
+@pytest.mark.parametrize("status", [s for s in DeliveryStatus if s is not DeliveryStatus.PENDING])
 def test_solo_reclama_entregas_pending(status):
     uow = FakeUnitOfWork()
     add_delivery(uow, status=status, next_attempt_at=NOW - timedelta(hours=1))

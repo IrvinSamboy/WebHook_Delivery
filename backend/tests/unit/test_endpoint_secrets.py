@@ -24,7 +24,7 @@ def test_sin_rotar_firma_solo_con_su_secreto():
 
 
 def test_el_periodo_de_gracia_es_de_24_horas():
-    assert SECRET_GRACE_PERIOD == timedelta(hours=24)
+    assert timedelta(hours=24) == SECRET_GRACE_PERIOD
 
 
 def test_tras_rotar_el_secreto_anterior_caduca_en_24_horas():

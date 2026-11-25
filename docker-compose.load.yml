@@ -1,0 +1,31 @@
+# Ajustes para la prueba de carga (make load). Se suma a docker-compose.yml.
+services:
+  api:
+    # Sin --reload (vigila archivos y ralentiza) y con 4 procesos.
+    command: uvicorn relay.entrypoints.api.main:app --host 0.0.0.0 --port 8000 --workers 4 --app-dir src
+    environment:
+      # Se mide la API, no el rate limit: el límite se sube mucho.
+      RATE_LIMIT_PER_MINUTE: "1000000"
+      ALLOW_PRIVATE_URLS: "true"
+
+  worker:
+    environment:
+      ALLOW_PRIVATE_URLS: "true"
+
+  receiver:
+    environment:
+      RECEIVER_STATUS: "204"
+      RECEIVER_DELAY: ${RECEIVER_DELAY:-0}
+      RECEIVER_QUIET: "1"
+
+  locust:
+    image: locustio/locust:2.32.4
+    profiles: ["load"]
+    environment:
+      RELAY_API_KEY: ${RELAY_API_KEY:-}
+    volumes:
+      - ./backend/loadtests:/mnt/locust
+    command: >-
+      -f /mnt/locust/locustfile.py --host http://api:8000
+      --headless --users ${LOAD_USERS:-50} --spawn-rate ${LOAD_SPAWN_RATE:-10}
+      --run-time ${LOAD_DURATION:-60s} --csv /mnt/locust/results/run --only-summary
