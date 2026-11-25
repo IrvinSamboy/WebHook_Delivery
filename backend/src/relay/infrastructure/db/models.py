@@ -97,12 +97,29 @@ class MessageModel(Base):
         # Para listar los mensajes de una aplicación por páginas: el cursor
         # salta directo a (created_at, id) en vez de recorrer la tabla.
         Index("ix_messages_app_id_created_at_id", "app_id", "created_at", "id"),
+        # Una Idempotency-Key por aplicación. Es el árbitro cuando dos reintentos
+        # llegan a la vez: el segundo INSERT falla y se devuelve el primero.
+        # Parcial: los mensajes sin key no ocupan sitio en el índice.
+        Index(
+            "ux_messages_app_id_idempotency_key",
+            "app_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "(idempotency_key IS NULL) = (request_hash IS NULL)",
+            name="idempotency_consistent",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     app_id: Mapped[UUID] = mapped_column(ForeignKey("applications.id"))
     event_type: Mapped[str] = mapped_column(String(200))
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
+    # SHA-256 en hexadecimal del tipo de evento y el payload.
+    request_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

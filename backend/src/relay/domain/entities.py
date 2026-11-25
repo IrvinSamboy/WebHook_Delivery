@@ -89,6 +89,10 @@ class Message:
     event_type: str
     payload: dict[str, Any]
     created_at: datetime
+    # La Idempotency-Key que mandó el cliente y el hash de su petición: un
+    # reintento con la misma key devuelve este mensaje en vez de crear otro.
+    idempotency_key: str | None = None
+    request_hash: str | None = None
 
 
 @dataclass(slots=True)

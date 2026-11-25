@@ -34,7 +34,7 @@ def test_un_worker_congelado_no_pisa_el_trabajo_del_que_tomo_el_sobre(uow, sessi
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
     RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
     queue = FakeTaskQueue()
-    message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {})
+    message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {}).message
     [delivery_id] = queue.enqueued
 
     def while_worker_1_is_frozen():
@@ -83,7 +83,7 @@ def test_un_worker_congelado_no_pisa_al_que_aun_esta_enviando(
     app, _ = CreateApplication(uow, FakeClock()).execute("tienda")
     RegisterEndpoint(uow, FakeClock(), FakeDestinationGuard()).execute(app.id, "https://example.com/hook", ["order.paid"])
     queue = FakeTaskQueue()
-    message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {})
+    message = CreateMessage(uow, FakeClock(), queue).execute(app.id, "order.paid", {}).message
     [delivery_id] = queue.enqueued
     worker_2_is_sending = threading.Event()
     worker_1_finished = threading.Event()

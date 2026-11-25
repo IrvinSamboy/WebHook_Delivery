@@ -26,3 +26,11 @@ class DestinationNotAllowed(Exception):
         super().__init__(f"Destino no permitido ({reason}): {url}")
         self.url = url
         self.reason = reason
+
+
+class DuplicateIdempotencyKey(Exception):
+    """Otra petición guardó antes un mensaje con la misma Idempotency-Key."""
+
+
+class IdempotencyKeyReused(Exception):
+    """La Idempotency-Key ya se usó con otra petición (otro evento o payload)."""

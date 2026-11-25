@@ -6,7 +6,14 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from fakes import FakeClock, FakeDestinationGuard, FakeTaskQueue, FakeUnitOfWork, make_endpoint
+from fakes import (
+    FakeClock,
+    FakeDestinationGuard,
+    FakeRateLimiter,
+    FakeTaskQueue,
+    FakeUnitOfWork,
+    make_endpoint,
+)
 from relay.domain.delivery_status import DeliveryStatus
 from relay.domain.entities import Delivery, Message
 from relay import container
@@ -42,7 +49,12 @@ def uow():
 
 
 @pytest.fixture
-def client(uow):
+def limiter():
+    return FakeRateLimiter()
+
+
+@pytest.fixture
+def client(uow, limiter):
     """Una API conectada a los fakes: estos tests no necesitan base de datos."""
     app.dependency_overrides = {
         deps.get_api_key_finder: lambda: fake_find_api_key,
@@ -51,6 +63,8 @@ def client(uow):
         container.register_endpoint: lambda: RegisterEndpoint(uow, FakeClock(), BLOCKING_GUARD),
         container.retry_delivery: lambda: RetryDelivery(uow, FakeClock(), FakeTaskQueue()),
         container.update_endpoint: lambda: UpdateEndpoint(uow, BLOCKING_GUARD),
+        # Sin Redis: los tests unitarios no dependen de ningún servicio.
+        container.rate_limiter: lambda: limiter,
         container.rotate_endpoint_secret: lambda: RotateEndpointSecret(uow, FakeClock()),
     }
     yield TestClient(app)
@@ -103,6 +117,48 @@ def test_crear_mensaje_responde_202_y_lo_guarda(client, uow):
     assert response.json() == {"id": str(uow.messages.items[0].id)}
     assert uow.messages.items[0].app_id == APP_ID
     assert len(uow.deliveries.items) == 1
+
+
+def test_repetir_con_la_misma_idempotency_key_devuelve_el_mismo_id(client, uow):
+    headers = {**AUTH, "Idempotency-Key": "pago-7781"}
+
+    first = client.post("/v1/messages", json=VALID_MESSAGE, headers=headers)
+    retry = client.post("/v1/messages", json=VALID_MESSAGE, headers=headers)
+
+    assert (first.status_code, retry.status_code) == (202, 202)
+    assert retry.json() == first.json()
+    assert "Idempotent-Replayed" not in first.headers
+    assert retry.headers["Idempotent-Replayed"] == "true"
+    assert len(uow.messages.items) == 1
+
+
+def test_reutilizar_la_key_con_otro_payload_responde_422(client, uow):
+    headers = {**AUTH, "Idempotency-Key": "pago-7781"}
+    client.post("/v1/messages", json=VALID_MESSAGE, headers=headers)
+
+    response = client.post(
+        "/v1/messages", json={**VALID_MESSAGE, "payload": {"order_id": "otro"}}, headers=headers
+    )
+
+    assert response.status_code == 422
+    assert "Idempotency-Key" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param("", id="vacia"),
+        pytest.param("con espacio", id="con-espacio"),
+        pytest.param("x" * 256, id="demasiado-larga"),
+    ],
+)
+def test_una_idempotency_key_invalida_responde_422(client, uow, key):
+    response = client.post(
+        "/v1/messages", json=VALID_MESSAGE, headers={**AUTH, "Idempotency-Key": key}
+    )
+
+    assert response.status_code == 422
+    assert uow.messages.items == []
 
 
 @pytest.mark.parametrize(
@@ -587,3 +643,56 @@ def test_cambiar_la_url_a_una_interna_responde_422(client, uow):
 
     assert response.status_code == 422
     assert uow.endpoints.items[0].url == endpoint.url
+
+
+# --- Rate limit (POST /v1/messages) ---
+
+
+def test_crear_mensaje_informa_del_limite_en_las_cabeceras(client, limiter):
+    limiter.limit = 10
+
+    response = client.post("/v1/messages", json=VALID_MESSAGE, headers=AUTH)
+
+    assert response.status_code == 202
+    assert response.headers["X-RateLimit-Limit"] == "10"
+    assert response.headers["X-RateLimit-Remaining"] == "9"
+    assert response.headers["X-RateLimit-Reset"] == "30"
+    assert limiter.hits == {APP_ID: 1}  # Se cuenta por aplicación.
+
+
+def test_superado_el_limite_responde_429_sin_crear_el_mensaje(client, uow, limiter):
+    limiter.limit = 2
+    for _ in range(2):
+        client.post("/v1/messages", json=VALID_MESSAGE, headers=AUTH)
+
+    response = client.post("/v1/messages", json=VALID_MESSAGE, headers=AUTH)
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "30"
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    assert len(uow.messages.items) == 2
+
+
+def test_con_redis_caido_deja_pasar_sin_cabeceras(client, uow, limiter):
+    limiter.down = True
+
+    response = client.post("/v1/messages", json=VALID_MESSAGE, headers=AUTH)
+
+    assert response.status_code == 202
+    assert "X-RateLimit-Remaining" not in response.headers
+    assert len(uow.messages.items) == 1
+
+
+def test_sin_autenticar_no_se_gasta_el_limite_de_nadie(client, limiter):
+    client.post("/v1/messages", json=VALID_MESSAGE, headers={"Authorization": "Bearer whr_x.y"})
+
+    assert limiter.hits == {}
+
+
+def test_las_lecturas_no_tienen_limite(client, limiter, monkeypatch):
+    monkeypatch.setattr(queries, "list_endpoints", lambda *_: [])
+
+    response = client.get("/v1/endpoints", headers=AUTH)
+
+    assert response.status_code == 200
+    assert limiter.hits == {}

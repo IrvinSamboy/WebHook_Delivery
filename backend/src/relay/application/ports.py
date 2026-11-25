@@ -50,6 +50,22 @@ class HttpSender(Protocol):
     def send(self, url: str, headers: dict[str, str], body: bytes) -> HttpResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class RateLimitDecision:
+    allowed: bool
+    limit: int
+    # None si no se pudo contar (Redis caído): se deja pasar sin cabeceras.
+    remaining: int | None
+    # Segundos hasta que empieza la ventana siguiente.
+    reset_seconds: int
+
+
+class RateLimiter(Protocol):
+    def hit(self, app_id: UUID) -> RateLimitDecision:
+        """Cuenta una petición de la aplicación y dice si puede pasar."""
+        ...
+
+
 class DestinationGuard(Protocol):
     """Decide si se puede enviar a una URL (protección contra SSRF)."""
 
@@ -95,7 +111,11 @@ class EndpointRepository(Protocol):
 
 
 class MessageRepository(Protocol):
-    def add(self, message: Message) -> None: ...
+    def add(self, message: Message) -> None:
+        """Lanza DuplicateIdempotencyKey si su key ya existe en la aplicación."""
+        ...
+
+    def get_by_idempotency_key(self, app_id: UUID, key: str) -> Message | None: ...
 
     def get(self, message_id: UUID) -> Message: ...
 

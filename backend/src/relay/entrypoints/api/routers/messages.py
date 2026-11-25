@@ -1,11 +1,12 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
 from relay import container
+from relay.application.errors import IdempotencyKeyReused
 from relay.application.use_cases.create_message import CreateMessage
-from relay.entrypoints.api.deps import CurrentAppId, SessionDep
+from relay.entrypoints.api.deps import CurrentAppId, SessionDep, enforce_rate_limit
 from relay.entrypoints.api.pagination import decode_cursor, encode_cursor
 from relay.entrypoints.api.schemas import (
     AttemptOut,
@@ -21,14 +22,36 @@ from relay.infrastructure.db import queries
 router = APIRouter(prefix="/v1/messages", tags=["messages"])
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED)
+# Caracteres ASCII visibles: lo habitual es un UUID o un id de la operación del cliente.
+IdempotencyKey = Annotated[
+    str | None,
+    Header(alias="Idempotency-Key", min_length=1, max_length=255, pattern=r"^[\x21-\x7E]+$"),
+]
+
+
+# Solo crear mensajes tiene límite: es lo que genera trabajo (filas, tareas, envíos).
+@router.post(
+    "", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(enforce_rate_limit)]
+)
 def create_message(
     body: MessageIn,
     app_id: CurrentAppId,
     use_case: Annotated[CreateMessage, Depends(container.create_message)],
+    response: Response,
+    idempotency_key: IdempotencyKey = None,
 ) -> MessageAccepted:
-    message = use_case.execute(app_id, body.event_type, body.payload)
-    return MessageAccepted(id=message.id)
+    """Con `Idempotency-Key`, repetir la petición devuelve el mismo mensaje sin crear otro."""
+    try:
+        result = use_case.execute(app_id, body.event_type, body.payload, idempotency_key)
+    except IdempotencyKeyReused:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="La Idempotency-Key ya se usó con otro evento o payload",
+        ) from None
+    if result.replayed:
+        # Para que el cliente sepa que no se creó nada nuevo (como hace Stripe).
+        response.headers["Idempotent-Replayed"] = "true"
+    return MessageAccepted(id=result.message.id)
 
 
 @router.get("")

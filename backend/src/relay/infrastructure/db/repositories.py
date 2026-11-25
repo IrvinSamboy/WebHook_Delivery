@@ -10,8 +10,10 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from relay.application.errors import DuplicateIdempotencyKey
 from relay.domain.delivery_status import DeliveryStatus
 from relay.domain.entities import (
     ApiKey,
@@ -152,18 +154,39 @@ class SqlAlchemyMessageRepository:
                 event_type=message.event_type,
                 payload=message.payload,
                 created_at=message.created_at,
+                idempotency_key=message.idempotency_key,
+                request_hash=message.request_hash,
             )
         )
-        self._session.flush()
+        try:
+            self._session.flush()
+        except IntegrityError as error:
+            # Se traduce a un error de la aplicación: el caso de uso no sabe de SQL.
+            if "ux_messages_app_id_idempotency_key" in str(error.orig):
+                raise DuplicateIdempotencyKey from error
+            raise
 
     def get(self, message_id: UUID) -> Message:
-        model = self._session.get_one(MessageModel, message_id)
+        return self._to_entity(self._session.get_one(MessageModel, message_id))
+
+    def get_by_idempotency_key(self, app_id: UUID, key: str) -> Message | None:
+        model = self._session.scalars(
+            select(MessageModel).where(
+                MessageModel.app_id == app_id, MessageModel.idempotency_key == key
+            )
+        ).one_or_none()
+        return None if model is None else self._to_entity(model)
+
+    @staticmethod
+    def _to_entity(model: MessageModel) -> Message:
         return Message(
             id=model.id,
             app_id=model.app_id,
             event_type=model.event_type,
             payload=model.payload,
             created_at=model.created_at,
+            idempotency_key=model.idempotency_key,
+            request_hash=model.request_hash,
         )
 
 

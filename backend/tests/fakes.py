@@ -108,10 +108,26 @@ class FakeMessageRepository:
         self.items: list[Message] = []
 
     def add(self, message: Message) -> None:
+        # Como el índice único de Postgres: una key por aplicación.
+        if message.idempotency_key is not None and self._find_key(
+            message.app_id, message.idempotency_key
+        ):
+            from relay.application.errors import DuplicateIdempotencyKey
+
+            raise DuplicateIdempotencyKey
         self.items.append(message)
 
     def get(self, message_id: UUID) -> Message:
         return next(m for m in self.items if m.id == message_id)
+
+    def get_by_idempotency_key(self, app_id: UUID, key: str) -> Message | None:
+        return self._find_key(app_id, key)
+
+    def _find_key(self, app_id: UUID, key: str) -> Message | None:
+        # Aparte del método público: un test puede sustituir ese sin afectar a add().
+        return next(
+            (m for m in self.items if m.app_id == app_id and m.idempotency_key == key), None
+        )
 
 
 class FakeDeliveryRepository:
@@ -251,3 +267,21 @@ class FakeDestinationGuard:
         self.checked.append(url)
         if url in self.blocked:
             raise DestinationNotAllowed(url, "apunta a una dirección interna")
+
+
+class FakeRateLimiter:
+    """Deja pasar `limit` peticiones por aplicación; con `down`, como Redis caído."""
+
+    def __init__(self, limit: int = 1000, down: bool = False) -> None:
+        self.limit = limit
+        self.down = down
+        self.hits: dict[UUID, int] = {}
+
+    def hit(self, app_id: UUID):
+        from relay.application.ports import RateLimitDecision
+
+        if self.down:
+            return RateLimitDecision(True, self.limit, None, 30)
+        self.hits[app_id] = self.hits.get(app_id, 0) + 1
+        count = self.hits[app_id]
+        return RateLimitDecision(count <= self.limit, self.limit, max(0, self.limit - count), 30)

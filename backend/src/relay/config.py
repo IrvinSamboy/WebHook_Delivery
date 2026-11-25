@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Permite enviar a direcciones internas. Solo para desarrollo (el receptor
     # de prueba es http://receiver:9000): por defecto, protegido contra SSRF.
     allow_private_urls: bool = False
+    # Mensajes por minuto que puede crear cada aplicación.
+    rate_limit_per_minute: int = Field(default=600, ge=1)
 
     @field_validator("encryption_key")
     @classmethod

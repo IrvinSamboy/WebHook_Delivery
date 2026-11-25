@@ -2,6 +2,8 @@
 
 from functools import lru_cache
 
+import redis
+
 from sqlalchemy.orm import Session, sessionmaker
 
 from relay.application.use_cases.create_application import CreateApplication
@@ -23,6 +25,7 @@ from relay.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from relay.infrastructure.http_sender import Httpx2Sender
 from relay.infrastructure.queue.celery_app import app as celery_app
 from relay.infrastructure.queue.task_queue import CeleryTaskQueue
+from relay.infrastructure.rate_limiter import RedisRateLimiter
 
 
 @lru_cache
@@ -91,3 +94,16 @@ def update_endpoint() -> UpdateEndpoint:
 
 def rotate_endpoint_secret() -> RotateEndpointSecret:
     return RotateEndpointSecret(_unit_of_work(), SystemClock())
+
+
+@lru_cache
+def redis_client() -> redis.Redis:
+    # Timeouts cortos: si Redis no responde, el rate limit deja pasar enseguida
+    # en vez de retrasar cada petición.
+    return redis.Redis.from_url(
+        get_settings().redis_url, socket_timeout=0.25, socket_connect_timeout=0.25
+    )
+
+
+def rate_limiter() -> RedisRateLimiter:
+    return RedisRateLimiter(redis_client(), get_settings().rate_limit_per_minute)

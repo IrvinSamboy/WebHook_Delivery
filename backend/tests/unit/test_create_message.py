@@ -11,7 +11,7 @@ APP_ID = uuid4()
 
 def run(uow: FakeUnitOfWork, event_type: str = "order.paid", queue: FakeTaskQueue | None = None):
     use_case = CreateMessage(uow, FakeClock(), queue or FakeTaskQueue())
-    return use_case.execute(APP_ID, event_type, {"order_id": "ord_981"})
+    return use_case.execute(APP_ID, event_type, {"order_id": "ord_981"}).message
 
 
 def test_guarda_el_mensaje_con_sus_datos():

@@ -71,3 +71,17 @@ def test_por_defecto_no_se_permite_enviar_a_direcciones_internas(monkeypatch):
 
     # Quien despliega sin configurarlo queda protegido contra SSRF.
     assert Settings().allow_private_urls is False
+
+
+def test_el_limite_es_de_600_mensajes_por_minuto_por_defecto(monkeypatch):
+    monkeypatch.delenv("RATE_LIMIT_PER_MINUTE", raising=False)
+
+    assert Settings().rate_limit_per_minute == 600
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "muchos"])
+def test_falla_si_el_limite_no_es_un_entero_positivo(monkeypatch, value):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", value)
+
+    with pytest.raises(ValidationError):
+        Settings()
