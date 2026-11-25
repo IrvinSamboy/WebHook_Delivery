@@ -156,6 +156,7 @@ class FakeDeliveryRepository:
         ]
         for delivery in rescued:
             delivery.status = DeliveryStatus.PENDING
+            delivery.lease_id = None
         return [d.id for d in rescued]
 
 

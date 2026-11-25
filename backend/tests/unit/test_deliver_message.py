@@ -306,3 +306,53 @@ def test_pasada_la_gracia_solo_vale_el_secreto_nuevo():
     args = (request.headers["webhook-id"], request.headers["webhook-timestamp"], header, request.body)
     assert verify("whsec_bnVldm8=", *args, now=int(NOW.timestamp()))
     assert not verify(old_secret, *args, now=int(NOW.timestamp()))
+
+
+# --- Otro worker tomó el sobre mientras se enviaba (lease caducado) ---
+
+
+def test_si_otro_worker_tomo_el_sobre_registra_el_intento_sin_tocar_el_estado(caplog):
+    uow, _, _, delivery = setup()
+    other_lease = uuid4()
+
+    def another_worker_takes_it():
+        # Mientras este worker espera la respuesta, el reaper rescata el sobre y
+        # otro worker lo toma y ya registró su propio intento.
+        uow.deliveries.items[0].lease_id = other_lease
+        uow.deliveries.items[0].attempt_count = 1
+
+    deliver(uow, delivery, FakeHttpSender(DOWN, on_send=another_worker_takes_it))
+
+    assert stored(uow).status is DeliveryStatus.SENDING  # Lo decide el otro worker.
+    assert stored(uow).lease_id == other_lease
+    assert stored(uow).attempt_count == 2
+    [attempt] = uow.attempts.items
+    assert attempt.number == 2  # De la fila releída, no de la copia: no choca con el #1.
+    assert "caducó" in caplog.text
+
+
+def test_si_el_reaper_lo_rescato_durante_el_envio_queda_pending():
+    uow, _, _, delivery = setup()
+
+    def reaper_rescues_it():
+        uow.deliveries.items[0].status = DeliveryStatus.PENDING
+        uow.deliveries.items[0].lease_id = None
+
+    deliver(uow, delivery, FakeHttpSender(OK, on_send=reaper_rescues_it))
+
+    # Aunque este envío salió bien, el sobre ya no era suyo: el scheduler lo
+    # reenviará (at-least-once) y el receptor deduplica con webhook-id.
+    assert stored(uow).status is DeliveryStatus.PENDING
+    assert stored(uow).attempt_count == 1
+    assert uow.attempts.items[0].response_status == 200
+
+
+def test_el_lease_se_guarda_al_tomar_el_sobre_y_se_libera_al_terminar():
+    uow, _, _, delivery = setup()
+    lease_during_send = []
+    sender = FakeHttpSender(OK, on_send=lambda: lease_during_send.append(stored(uow).lease_id))
+
+    deliver(uow, delivery, sender)
+
+    assert lease_during_send[0] is not None
+    assert stored(uow).lease_id is None

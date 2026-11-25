@@ -180,6 +180,7 @@ class SqlAlchemyDeliveryRepository:
                 status=delivery.status.value,
                 next_attempt_at=delivery.next_attempt_at,
                 attempt_count=delivery.attempt_count,
+                lease_id=delivery.lease_id,
                 created_at=delivery.created_at,
             )
         )
@@ -201,6 +202,7 @@ class SqlAlchemyDeliveryRepository:
             next_attempt_at=model.next_attempt_at,
             created_at=model.created_at,
             attempt_count=model.attempt_count,
+            lease_id=model.lease_id,
         )
 
     def update(self, delivery: Delivery) -> None:
@@ -211,6 +213,7 @@ class SqlAlchemyDeliveryRepository:
                 status=delivery.status.value,
                 next_attempt_at=delivery.next_attempt_at,
                 attempt_count=delivery.attempt_count,
+                lease_id=delivery.lease_id,
                 updated_at=func.now(),
             )
         )
@@ -263,6 +266,9 @@ class SqlAlchemyDeliveryRepository:
             .values(
                 status=DeliveryStatus.PENDING.value,
                 next_attempt_at=func.now(),
+                # Se "reprograma la cerradura": el worker que la tenía, si sigue
+                # vivo, ya no podrá decidir su estado.
+                lease_id=None,
                 updated_at=func.now(),
             )
             .returning(DeliveryModel.id)

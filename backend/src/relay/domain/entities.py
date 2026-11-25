@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from relay.domain.delivery_status import ALLOWED_TRANSITIONS, DeliveryStatus
 from relay.domain.errors import InvalidTransition
@@ -102,23 +102,40 @@ class Delivery:
     next_attempt_at: datetime
     created_at: datetime
     attempt_count: int = 0
+    # El fencing token: identifica qué worker tiene el sobre ahora mismo.
+    # Cada start_sending genera uno nuevo y el reaper lo borra al rescatarlo,
+    # así que un worker que se quedó congelado ya no lo reconoce como suyo.
+    lease_id: UUID | None = None
 
-    def start_sending(self) -> None:
-        """Un worker toma el sobre de la cola."""
+    def start_sending(self) -> UUID:
+        """Un worker toma el sobre de la cola. Devuelve su lease: su "tarjeta"."""
         self._move_to(DeliveryStatus.SENDING)
+        self.lease_id = uuid4()
+        return self.lease_id
 
     def record_attempt(
         self,
+        lease_id: UUID,
         succeeded: bool,
         now: datetime,
         policy: RetryPolicy,
         retry_after: timedelta | None = None,
-    ) -> None:
-        """Decide qué pasa con el sobre tras un intento de envío."""
-        if self.status is not DeliveryStatus.SENDING:
-            raise InvalidTransition(self.status, DeliveryStatus.PENDING)
+    ) -> bool:
+        """Cuenta el intento y, si el lease sigue vigente, decide qué pasa con el sobre.
 
+        Un worker cuyo lease caducó (el reaper le quitó el sobre mientras estaba
+        congelado) solo deja constancia: su POST ocurrió y cuenta para el máximo
+        de intentos, pero el estado lo decide quien tiene el sobre ahora.
+
+        Devuelve si el lease estaba vigente.
+        """
         self.attempt_count += 1
+        # Hay que comprobar las dos cosas: el estado dice que alguien lo está
+        # enviando, el lease dice quién.
+        if self.status is not DeliveryStatus.SENDING or self.lease_id != lease_id:
+            return False
+
+        self.lease_id = None
         if succeeded:
             self._move_to(DeliveryStatus.SUCCEEDED)
         elif self.attempt_count >= policy.max_attempts:
@@ -126,6 +143,7 @@ class Delivery:
         else:
             self._move_to(DeliveryStatus.PENDING)
             self.next_attempt_at = now + policy.delay_after(self.attempt_count, retry_after)
+        return True
 
     def retry_manually(self, now: datetime) -> None:
         """El cliente pide otro intento de un sobre fallido.

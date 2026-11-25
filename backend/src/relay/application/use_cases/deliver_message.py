@@ -6,6 +6,7 @@ y el bloqueo de la fila durante todo el envío (hasta 15 s).
 """
 
 import json
+import logging
 from datetime import UTC
 from uuid import UUID, uuid4
 
@@ -14,6 +15,8 @@ from relay.domain.delivery_status import DeliveryStatus
 from relay.domain.entities import Attempt, AttemptTrigger, Message, truncate_response_body
 from relay.domain.retry_policy import RetryPolicy
 from relay.domain.signing import sign
+
+logger = logging.getLogger(__name__)
 
 
 def build_body(message: Message) -> bytes:
@@ -52,7 +55,7 @@ class DeliverMessage:
             endpoint = uow.endpoints.get(delivery.endpoint_id)
             message = uow.messages.get(delivery.message_id)
 
-            delivery.start_sending()
+            lease_id = delivery.start_sending()
             uow.deliveries.update(delivery)
             uow.commit()
 
@@ -77,11 +80,17 @@ class DeliverMessage:
 
         # Transacción 2: registrar lo que pasó y decidir qué sigue.
         with self._uow as uow:
+            # Se relee la fila en vez de usar la copia de la transacción 1:
+            # mientras se enviaba, el reaper pudo dársela a otro worker.
+            current = uow.deliveries.get_for_update(delivery_id)
+            if current is None:
+                return
             uow.attempts.add(
                 Attempt(
                     id=uuid4(),
-                    delivery_id=delivery.id,
-                    number=delivery.attempt_count + 1,
+                    delivery_id=current.id,
+                    # De la fila recién leída: dos workers nunca calculan el mismo.
+                    number=current.attempt_count + 1,
                     started_at=started_at,
                     duration_ms=result.duration_ms,
                     request_headers=headers,  # Sin la firma: no aporta nada guardarla.
@@ -93,11 +102,19 @@ class DeliverMessage:
                     trigger=trigger,
                 )
             )
-            delivery.record_attempt(
+            lease_valid = current.record_attempt(
+                lease_id=lease_id,
                 succeeded=result.succeeded,
                 now=self._clock.now(),
                 policy=self._policy,
                 retry_after=result.retry_after,
             )
-            uow.deliveries.update(delivery)
+            uow.deliveries.update(current)
             uow.commit()
+
+        if not lease_valid:
+            logger.warning(
+                "El lease de la entrega %s caducó durante el envío: se registró el "
+                "intento pero el estado lo decide quien la tiene ahora",
+                delivery_id,
+            )
