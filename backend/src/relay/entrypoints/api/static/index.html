@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>webhook-relay · panel</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e8ee; --muted: #8b93a7;
+    --accent: #6ea8fe; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --info: #a78bfa;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .grow { flex: 1; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); margin-right: 6px; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  nav { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  nav button { background: none; border: none; color: var(--muted); padding: 12px 14px; cursor: pointer; border-bottom: 2px solid transparent; font-size: 14px; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
+  input, textarea, select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font: inherit; }
+  textarea { font-family: ui-monospace, monospace; font-size: 12px; min-height: 120px; resize: vertical; }
+  button.btn { background: var(--accent); color: #0b1020; border: none; border-radius: 6px; padding: 8px 14px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  button.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  button.btn.small { padding: 4px 10px; font-size: 12px; }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .mt { margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tr.clickable { cursor: pointer; } tr.clickable:hover td { background: #1d212b; }
+  tr.selected td { background: #1f2533; }
+  code, .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+  .muted { color: var(--muted); }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--line); margin: 1px 2px 1px 0; }
+  .st-succeeded { color: var(--ok); border-color: #2a5a3b; }
+  .st-failed { color: var(--bad); border-color: #6a2f2f; }
+  .st-pending, .st-queued { color: var(--warn); border-color: #6a5420; }
+  .st-sending { color: var(--info); border-color: #4b3d7a; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow: auto; max-height: 260px; margin: 6px 0; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .secret { background: #1e2a1e; border: 1px solid #2a5a3b; border-radius: 6px; padding: 10px; margin-top: 12px; }
+  .secret code { word-break: break-all; }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-width: 80px; }
+  .stat b { display: block; font-size: 16px; }
+  .attempt { border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 10px; }
+  #toast { position: fixed; bottom: 20px; right: 20px; max-width: 420px; padding: 10px 14px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); display: none; }
+  #toast.bad { border-color: var(--bad); } #toast.ok { border-color: var(--ok); }
+  .hidden { display: none !important; }
+  .empty { color: var(--muted); padding: 16px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>webhook-relay</h1>
+  <span id="health" class="muted"><span class="dot"></span>comprobando…</span>
+  <span class="grow"></span>
+  <input id="apiKey" type="password" placeholder="API key (Bearer)" style="max-width: 320px">
+  <button class="btn ghost small" id="saveKey">Guardar</button>
+</header>
+<nav>
+  <button data-tab="endpoints" class="active">Endpoints</button>
+  <button data-tab="messages">Mensajes</button>
+</nav>
+<main>
+  <!-- ENDPOINTS -->
+  <section id="tab-endpoints" class="grid">
+    <div>
+      <div class="card">
+        <h2>Registrar endpoint</h2>
+        <form id="createEndpoint">
+          <label>URL de destino</label>
+          <input name="url" placeholder="https://ejemplo.com/webhooks" required>
+          <label>Tipos de evento (separados por coma)</label>
+          <input name="event_types" placeholder="order.created, order.paid" required>
+          <div class="mt"><button class="btn">Crear</button></div>
+        </form>
+        <div id="newSecret" class="secret hidden"></div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="row"><h2 style="margin:0">Endpoints</h2><span class="grow" style="flex:1"></span>
+          <button class="btn ghost small" id="reloadEndpoints">Recargar</button></div>
+        <table class="mt">
+          <thead><tr><th>URL</th><th>Eventos</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="endpointRows"></tbody>
+        </table>
+      </div>
+      <div class="card hidden" id="endpointDetail"></div>
+    </div>
+  </section>
+
+  <!-- MENSAJES -->
+  <section id="tab-messages" class="grid hidden">
+    <div>
+      <div class="card">
+        <h2>Enviar mensaje</h2>
+        <form id="createMessage">
+          <label>Tipo de evento</label>
+          <input name="event_type" placeholder="order.created" required>
+          <label>Payload (JSON)</label>
+          <textarea name="payload">{
+  "order_id": 123,
+  "total": 49.9
+}</textarea>
+          <label>Idempotency-Key (opcional)</label>
+          <div class="row">
+            <input name="idem" placeholder="ej. pedido-123" style="flex:1">
+            <button type="button" class="btn ghost small" id="genIdem">UUID</button>
+          </div>
+          <div class="mt"><button class="btn">Enviar</button></div>
+        </form>
+        <div id="rateInfo" class="muted mt mono"></div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="row">
+          <h2 style="margin:0">Mensajes</h2><span style="flex:1"></span>
+          <input id="filterEvent" placeholder="filtrar por evento" style="max-width:200px">
+          <button class="btn ghost small" id="reloadMessages">Recargar</button>
+        </div>
+        <table class="mt">
+          <thead><tr><th>Evento</th><th>ID</th><th>Creado</th></tr></thead>
+          <tbody id="messageRows"></tbody>
+        </table>
+        <div class="mt"><button class="btn ghost small hidden" id="moreMessages">Cargar más</button></div>
+      </div>
+      <div class="card hidden" id="messageDetail"></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (sel, root = document) => root.querySelector(sel);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (iso) => iso ? new Date(iso).toLocaleString() : "—";
+const short = (id) => String(id).slice(0, 8);
+const statusTag = (s) => `<span class="tag st-${esc(s)}">${esc(s)}</span>`;
+
+let apiKey = localStorage.getItem("relay.apiKey") || "";
+$("#apiKey").value = apiKey;
+
+function toast(msg, kind = "ok") {
+  const t = $("#toast");
+  t.textContent = msg; t.className = kind; t.style.display = "block";
+  clearTimeout(toast._t); toast._t = setTimeout(() => (t.style.display = "none"), 4000);
+}
+
+async function api(method, path, body, headers = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: { Authorization: `Bearer ${apiKey}`, ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) {
+    let detail = data?.detail ?? res.statusText;
+    if (Array.isArray(detail)) detail = detail.map((d) => `${(d.loc || []).slice(1).join(".")}: ${d.msg}`).join("; ");
+    const err = new Error(`${res.status} · ${detail}`); err.status = res.status; throw err;
+  }
+  return { data, res };
+}
+const handle = (fn) => async (...args) => { try { await fn(...args); } catch (e) { toast(e.message, "bad"); } };
+
+// ---------- salud y API key ----------
+async function checkHealth() {
+  const el = $("#health");
+  try { const r = await fetch("/health"); if (!r.ok) throw 0; el.innerHTML = '<span class="dot ok"></span>API ok'; }
+  catch { el.innerHTML = '<span class="dot bad"></span>API caída'; }
+}
+$("#saveKey").onclick = () => {
+  apiKey = $("#apiKey").value.trim();
+  localStorage.setItem("relay.apiKey", apiKey);
+  toast("API key guardada"); loadEndpoints(); loadMessages(true);
+};
+
+// ---------- pestañas ----------
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== `tab-${b.dataset.tab}`));
+});
+
+// ---------- endpoints ----------
+const parseEvents = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
+let selectedEndpoint = null;
+
+const loadEndpoints = handle(async () => {
+  if (!apiKey) { $("#endpointRows").innerHTML = '<tr><td colspan="4" class="empty">Introduce tu API key arriba</td></tr>'; return; }
+  const { data } = await api("GET", "/v1/endpoints");
+  $("#endpointRows").innerHTML = data.length ? data.map((e) => `
+    <tr class="clickable ${e.id === selectedEndpoint ? "selected" : ""}" data-id="${esc(e.id)}">
+      <td class="mono">${esc(e.url)}</td>
+      <td>${e.event_types.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</td>
+      <td>${e.enabled ? '<span class="tag st-succeeded">activo</span>' : '<span class="tag">pausado</span>'}</td>
+      <td class="muted mono">${short(e.id)}</td>
+    </tr>`).join("") : '<tr><td colspan="4" class="empty">Sin endpoints todavía</td></tr>';
+  document.querySelectorAll("#endpointRows tr[data-id]").forEach((tr) => tr.onclick = () => showEndpoint(tr.dataset.id));
+});
+
+const showEndpoint = handle(async (id) => {
+  selectedEndpoint = id;
+  document.querySelectorAll("#endpointRows tr").forEach((tr) => tr.classList.toggle("selected", tr.dataset.id === id));
+  const [{ data: e }, { data: s }] = await Promise.all([api("GET", `/v1/endpoints/${id}`), api("GET", `/v1/endpoints/${id}/stats`)]);
+  const box = $("#endpointDetail");
+  box.classList.remove("hidden");
+  const counts = Object.entries(s.deliveries);
+  box.innerHTML = `
+    <h2>Endpoint <span class="mono muted">${esc(e.id)}</span></h2>
+    <div class="muted">Creado ${fmt(e.created_at)}${e.previous_secret_expires_at ? ` · secreto anterior válido hasta ${fmt(e.previous_secret_expires_at)}` : ""}</div>
+    <label>Entregas últimas 24 h</label>
+    <div class="stats">
+      <div class="stat"><span class="muted">éxito</span><b>${s.success_rate == null ? "—" : (s.success_rate * 100).toFixed(1) + "%"}</b></div>
+      ${counts.map(([k, v]) => `<div class="stat"><span class="muted">${esc(k)}</span><b>${v}</b></div>`).join("")}
+    </div>
+    <form id="editEndpoint">
+      <label>URL</label><input name="url" value="${esc(e.url)}">
+      <label>Tipos de evento</label><input name="event_types" value="${esc(e.event_types.join(", "))}">
+      <div class="row mt">
+        <button class="btn">Guardar cambios</button>
+        <button type="button" class="btn ghost" id="toggleEnabled">${e.enabled ? "Pausar" : "Activar"}</button>
+        <button type="button" class="btn ghost" id="rotate">Rotar secreto</button>
+        <label style="margin:0"><input type="checkbox" id="expirePrev" style="width:auto"> invalidar el anterior ya</label>
+      </div>
+    </form>
+    <div id="rotatedSecret" class="secret hidden"></div>`;
+  $("#editEndpoint").onsubmit = handle(async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.target), patch = {};
+    if (f.get("url") !== e.url) patch.url = f.get("url");
+    const evs = parseEvents(f.get("event_types"));
+    if (evs.join(",") !== e.event_types.join(",")) patch.event_types = evs;
+    if (!Object.keys(patch).length) return toast("No hay cambios");
+    await api("PATCH", `/v1/endpoints/${id}`, patch);
+    toast("Endpoint actualizado"); loadEndpoints(); showEndpoint(id);
+  });
+  $("#toggleEnabled").onclick = handle(async () => {
+    await api("PATCH", `/v1/endpoints/${id}`, { enabled: !e.enabled });
+    toast(e.enabled ? "Endpoint pausado" : "Endpoint activado"); loadEndpoints(); showEndpoint(id);
+  });
+  $("#rotate").onclick = handle(async () => {
+    if (!confirm("¿Generar un secreto nuevo?")) return;
+    const expire = $("#expirePrev").checked;
+    const { data } = await api("POST", `/v1/endpoints/${id}/rotate-secret?expire_previous=${expire}`);
+    const el = $("#rotatedSecret"); el.classList.remove("hidden");
+    el.innerHTML = `<b>Secreto nuevo</b> (solo se muestra ahora):<br><code>${esc(data.secret)}</code>
+      <div class="muted">${data.previous_secret_expires_at ? `El anterior sigue firmando hasta ${fmt(data.previous_secret_expires_at)}` : "El anterior ya no vale."}</div>`;
+  });
+});
+
+$("#createEndpoint").onsubmit = handle(async (ev) => {
+  ev.preventDefault();
+  const f = new FormData(ev.target);
+  const { data } = await api("POST", "/v1/endpoints", { url: f.get("url"), event_types: parseEvents(f.get("event_types")) });
+  const el = $("#newSecret"); el.classList.remove("hidden");
+  el.innerHTML = `<b>Endpoint creado.</b> Guarda el secreto, no se vuelve a mostrar:<br><code>${esc(data.secret)}</code>`;
+  ev.target.reset(); loadEndpoints();
+});
+$("#reloadEndpoints").onclick = loadEndpoints;
+
+// ---------- mensajes ----------
+let nextCursor = null, selectedMessage = null;
+
+const loadMessages = handle(async (reset = true) => {
+  if (!apiKey) { $("#messageRows").innerHTML = '<tr><td colspan="3" class="empty">Introduce tu API key arriba</td></tr>'; return; }
+  const params = new URLSearchParams({ limit: "20" });
+  const evt = $("#filterEvent").value.trim();
+  if (evt) params.set("event_type", evt);
+  if (!reset && nextCursor) params.set("cursor", nextCursor);
+  const { data } = await api("GET", `/v1/messages?${params}`);
+  const rows = data.data.map((m) => `
+    <tr class="clickable ${m.id === selectedMessage ? "selected" : ""}" data-id="${esc(m.id)}">
+      <td><span class="tag">${esc(m.event_type)}</span></td>
+      <td class="mono muted">${short(m.id)}</td>
+      <td class="muted">${fmt(m.created_at)}</td>
+    </tr>`).join("");
+  const body = $("#messageRows");
+  if (reset) body.innerHTML = rows || '<tr><td colspan="3" class="empty">Sin mensajes</td></tr>';
+  else body.insertAdjacentHTML("beforeend", rows);
+  nextCursor = data.next_cursor;
+  $("#moreMessages").classList.toggle("hidden", !nextCursor);
+  body.querySelectorAll("tr[data-id]").forEach((tr) => tr.onclick = () => showMessage(tr.dataset.id));
+});
+
+const showMessage = handle(async (id) => {
+  selectedMessage = id;
+  document.querySelectorAll("#messageRows tr").forEach((tr) => tr.classList.toggle("selected", tr.dataset.id === id));
+  const [{ data: m }, { data: attempts }] = await Promise.all([api("GET", `/v1/messages/${id}`), api("GET", `/v1/messages/${id}/attempts`)]);
+  const box = $("#messageDetail"); box.classList.remove("hidden");
+  box.innerHTML = `
+    <div class="row"><h2 style="margin:0">Mensaje <span class="mono muted">${esc(m.id)}</span></h2><span style="flex:1"></span>
+      <button class="btn ghost small" id="refreshMsg">Refrescar</button></div>
+    <div class="muted">${esc(m.event_type)} · ${fmt(m.created_at)}</div>
+    <label>Payload</label><pre>${esc(JSON.stringify(m.payload, null, 2))}</pre>
+    <label>Entregas</label>
+    ${m.deliveries.length ? `<table><thead><tr><th>Endpoint</th><th>Estado</th><th>Intentos</th><th>Próximo intento</th><th></th></tr></thead><tbody>
+      ${m.deliveries.map((d) => `<tr>
+        <td class="mono">${short(d.endpoint_id)}</td><td>${statusTag(d.status)}</td><td>${d.attempt_count}</td>
+        <td class="muted">${d.status === "succeeded" || d.status === "failed" ? "—" : fmt(d.next_attempt_at)}</td>
+        <td>${d.status === "failed" ? `<button class="btn small" data-retry="${esc(d.id)}">Reintentar</button>` : ""}</td>
+      </tr>`).join("")}</tbody></table>` : '<div class="empty">Ningún endpoint suscrito a este evento</div>'}
+    <label>Intentos (${attempts.length})</label>
+    ${attempts.map((a) => `<div class="attempt">
+      <div class="row">
+        <b>#${a.number}</b>
+        <span class="tag ${a.response_status >= 200 && a.response_status < 300 ? "st-succeeded" : "st-failed"}">${a.response_status ?? "sin respuesta"}</span>
+        <span class="tag">${esc(a.trigger)}</span>
+        <span class="muted">${fmt(a.started_at)} · ${a.duration_ms} ms · endpoint ${short(a.endpoint_id)}</span>
+      </div>
+      ${a.error ? `<div style="color:var(--bad)" class="mono mt">${esc(a.error)}</div>` : ""}
+      <details class="mt"><summary class="muted">Cabeceras y respuesta</summary>
+        <pre>${esc(JSON.stringify(a.request_headers, null, 2))}</pre>
+        ${a.response_body != null ? `<pre>${esc(a.response_body)}</pre>` : ""}
+      </details>
+    </div>`).join("") || '<div class="empty">Aún no hay intentos</div>'}`;
+  $("#refreshMsg").onclick = () => showMessage(id);
+  box.querySelectorAll("[data-retry]").forEach((b) => b.onclick = handle(async () => {
+    await api("POST", `/v1/deliveries/${b.dataset.retry}/retry`);
+    toast("Entrega reencolada"); showMessage(id);
+  }));
+});
+
+$("#createMessage").onsubmit = handle(async (ev) => {
+  ev.preventDefault();
+  const f = new FormData(ev.target);
+  let payload;
+  try { payload = JSON.parse(f.get("payload")); } catch { return toast("El payload no es JSON válido", "bad"); }
+  const idem = f.get("idem").trim();
+  const { data, res } = await api("POST", "/v1/messages", { event_type: f.get("event_type"), payload }, idem ? { "Idempotency-Key": idem } : {});
+  const lim = res.headers.get("X-RateLimit-Remaining");
+  $("#rateInfo").textContent = lim != null ? `Rate limit: quedan ${lim}/${res.headers.get("X-RateLimit-Limit")} (reinicio en ${res.headers.get("X-RateLimit-Reset")} s)` : "";
+  toast(res.headers.get("Idempotent-Replayed") ? `Repetido: mismo mensaje ${short(data.id)}` : `Mensaje aceptado ${short(data.id)}`);
+  await loadMessages(true); showMessage(data.id);
+});
+$("#genIdem").onclick = () => ($("#createMessage").idem.value = crypto.randomUUID());
+$("#reloadMessages").onclick = () => loadMessages(true);
+$("#moreMessages").onclick = () => loadMessages(false);
+let filterTimer; $("#filterEvent").oninput = () => { clearTimeout(filterTimer); filterTimer = setTimeout(() => loadMessages(true), 300); };
+
+checkHealth(); setInterval(checkHealth, 15000);
+loadEndpoints(); loadMessages(true);
+</script>
+</body>
+</html>
